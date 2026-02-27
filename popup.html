@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Conversation Exporter</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <h1>Conversation Exporter</h1>
+        <p>Paste conversation JSON and export formatted turns.</p>
+      </header>
+
+      <label class="field">
+        <span>Conversation JSON</span>
+        <textarea id="jsonInput" spellcheck="false" placeholder='{"messages":[...]}'></textarea>
+      </label>
+
+      <section class="actions">
+        <button id="loadFileButton" type="button">Load JSON File</button>
+      </section>
+
+      <input id="fileInput" type="file" accept=".json,application/json" hidden>
+
+      <section class="row">
+        <label class="field compact">
+          <span>Assistant name</span>
+          <input id="assistantName" type="text" value="Kai">
+        </label>
+        <label class="field compact">
+          <span>User name</span>
+          <input id="userName" type="text" value="Val">
+        </label>
+      </section>
+
+      <section class="field">
+        <span>Export format</span>
+        <div class="format-picker">
+          <label><input type="radio" name="format" value="txt" checked> TXT</label>
+          <label><input type="radio" name="format" value="md"> MD</label>
+        </div>
+      </section>
+
+      <section class="actions">
+        <button id="previewButton" type="button">Preview</button>
+        <button id="exportButton" type="button">Export</button>
+      </section>
+
+      <label class="field">
+        <span>Preview</span>
+        <textarea id="previewOutput" readonly></textarea>
+      </label>
+
+      <p id="status" class="status" aria-live="polite"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+  </html>

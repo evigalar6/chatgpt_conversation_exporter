@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Conversation Exporter",
+  "version": "1.0.0",
+  "description": "Export conversation JSON to TXT or Markdown with custom speaker formatting.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Conversation Exporter"
+  },
+  "permissions": [
+    "downloads"
+  ]
+}
