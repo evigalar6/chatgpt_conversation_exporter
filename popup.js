@@ -258,6 +258,7 @@ async function getActiveTab() {
 async function fetchConversationFromPage(tabId) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
+    world: "MAIN",
     func: async () => {
       const match = window.location.pathname.match(/\/c\/([a-z0-9-]+)/i);
       if (!match) {
@@ -275,7 +276,8 @@ async function fetchConversationFromPage(tabId) {
       );
 
       if (!response.ok) {
-        throw new Error(`Chat fetch failed (${response.status}).`);
+        const errorText = await response.text();
+        throw new Error(`Chat fetch failed (${response.status}): ${errorText}`);
       }
 
       return response.json();
