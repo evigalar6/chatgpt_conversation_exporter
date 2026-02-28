@@ -10,18 +10,17 @@
     <main class="app">
       <header class="hero">
         <h1>Conversation Exporter</h1>
-        <p>Preview pasted JSON manually, or export the current ChatGPT conversation in one click.</p>
+        <p>Open the exporter inside the current ChatGPT page, or preview pasted JSON manually.</p>
       </header>
+
+      <section class="actions">
+        <button id="openOverlayButton" type="button">Open Exporter On Current Page</button>
+      </section>
 
       <label class="field">
         <span>Conversation JSON</span>
         <textarea id="jsonInput" spellcheck="false" placeholder='{"messages":[...]}'></textarea>
       </label>
-
-      <section class="actions">
-        <button id="loadCurrentChatButton" type="button">Load Current Chat</button>
-        <button id="exportCurrentChatButton" type="button">Export Current Chat</button>
-      </section>
 
       <section class="actions">
         <button id="loadFileButton" type="button">Load JSON File</button>
@@ -61,6 +60,7 @@
       <p id="status" class="status" aria-live="polite"></p>
     </main>
 
+    <script src="parser.js"></script>
     <script src="popup.js"></script>
   </body>
   </html>

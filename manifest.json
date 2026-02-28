@@ -17,6 +17,18 @@
     "default_popup": "popup.html",
     "default_title": "Conversation Exporter"
   },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "parser.js",
+        "overlay.js"
+      ],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ]
+    }
+  ],
   "permissions": [
     "activeTab",
     "downloads",
