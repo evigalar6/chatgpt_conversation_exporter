@@ -340,6 +340,157 @@
     return null;
   }
 
+  function extractTextFromElement(rootElement) {
+    const blockedTags = new Set([
+      "BUTTON",
+      "NAV",
+      "SVG",
+      "SCRIPT",
+      "STYLE",
+      "NOSCRIPT",
+      "TEXTAREA"
+    ]);
+    const blockedRoles = new Set(["button", "menu", "dialog"]);
+    const walker = document.createTreeWalker(
+      rootElement,
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const value = node.textContent?.replace(/\s+/g, " ").trim();
+            return value ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+          }
+
+          if (blockedTags.has(node.tagName)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          const role = node.getAttribute?.("role");
+          if (role && blockedRoles.has(role)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          if (
+            node.getAttribute?.("aria-hidden") === "true" ||
+            node.closest?.("[aria-hidden='true']")
+          ) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          return NodeFilter.FILTER_SKIP;
+        }
+      }
+    );
+
+    const lines = [];
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      if (currentNode.nodeType === Node.TEXT_NODE) {
+        const text = currentNode.textContent.replace(/\s+/g, " ").trim();
+        if (text) {
+          lines.push(text);
+        }
+      }
+      currentNode = walker.nextNode();
+    }
+
+    return lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function getConversationTitle() {
+    const rawTitle = document.title || "conversation-export";
+    return rawTitle.replace(/\s*[-|]\s*ChatGPT\s*$/i, "").trim() || "conversation-export";
+  }
+
+  function extractConversationFromDom() {
+    const articleSelectors = [
+      "[data-testid^='conversation-turn-']",
+      "article[data-testid]",
+      "article",
+      "[data-message-author-role]"
+    ];
+
+    const candidates = [];
+    for (const selector of articleSelectors) {
+      const found = Array.from(document.querySelectorAll(selector));
+      if (found.length) {
+        candidates.push(...found);
+      }
+      if (candidates.length >= 2) {
+        break;
+      }
+    }
+
+    const uniqueCandidates = Array.from(new Set(candidates)).filter((element) => {
+      const role =
+        element.getAttribute("data-message-author-role") ||
+        element.querySelector("[data-message-author-role]")?.getAttribute("data-message-author-role") ||
+        "";
+      return /^(user|assistant)$/i.test(role) || element.matches("[data-testid^='conversation-turn-']");
+    });
+
+    const turns = [];
+    for (const element of uniqueCandidates) {
+      const role =
+        element.getAttribute("data-message-author-role") ||
+        element.querySelector("[data-message-author-role]")?.getAttribute("data-message-author-role") ||
+        "";
+      const normalizedRole = role.toLowerCase();
+      if (!["user", "assistant"].includes(normalizedRole)) {
+        continue;
+      }
+
+      const contentRoot =
+        element.querySelector(".markdown") ||
+        element.querySelector("[class*='markdown']") ||
+        element.querySelector("[data-message-author-role]") ||
+        element;
+      const text = extractTextFromElement(contentRoot);
+      if (!text) {
+        continue;
+      }
+
+      turns.push({ role: normalizedRole, text });
+    }
+
+    if (!turns.length) {
+      return null;
+    }
+
+    const mapping = {};
+    let previousId = null;
+    turns.forEach((turn, index) => {
+      const id = `dom-turn-${index}`;
+      mapping[id] = {
+        id,
+        parent: previousId,
+        children: [],
+        message: {
+          id,
+          author: { role: turn.role },
+          content: {
+            content_type: "text",
+            parts: [turn.text]
+          }
+        }
+      };
+      if (previousId && mapping[previousId]) {
+        mapping[previousId].children.push(id);
+      }
+      previousId = id;
+    });
+
+    return {
+      title: getConversationTitle(),
+      conversation_id: getConversationId(),
+      current_node: previousId,
+      mapping
+    };
+  }
+
   async function fetchConversationFromApi(conversationId) {
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
@@ -379,6 +530,14 @@
       return {
         conversationJson: pageStateMatch,
         source: "page-state"
+      };
+    }
+
+    const domMatch = extractConversationFromDom();
+    if (domMatch) {
+      return {
+        conversationJson: domMatch,
+        source: "dom"
       };
     }
 
