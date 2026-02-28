@@ -151,6 +151,7 @@
   const userInput = root.querySelector("#ce-user");
   const previewOutput = root.querySelector("#ce-preview-output");
   const statusOutput = root.querySelector("#ce-status");
+  let activeConversationId = window.location.pathname;
 
   function setStatus(message, isError = false) {
     statusOutput.textContent = message;
@@ -164,6 +165,11 @@
   function getConversationId() {
     const match = window.location.pathname.match(/\/c\/([a-z0-9-]+)/i);
     return match ? match[1] : "";
+  }
+
+  function resetOverlayState(message = "Conversation changed. Preview cleared.") {
+    previewOutput.value = "";
+    setStatus(message);
   }
 
   function looksLikeConversation(candidate, conversationId) {
@@ -340,64 +346,135 @@
     return null;
   }
 
-  function extractTextFromElement(rootElement) {
-    const blockedTags = new Set([
-      "BUTTON",
-      "NAV",
-      "SVG",
-      "SCRIPT",
-      "STYLE",
-      "NOSCRIPT",
-      "TEXTAREA"
-    ]);
-    const blockedRoles = new Set(["button", "menu", "dialog"]);
-    const walker = document.createTreeWalker(
-      rootElement,
-      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          if (node.nodeType === Node.TEXT_NODE) {
-            const value = node.textContent?.replace(/\s+/g, " ").trim();
-            return value ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-          }
+  function normalizeInlineWhitespace(text) {
+    return text.replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n");
+  }
 
-          if (blockedTags.has(node.tagName)) {
-            return NodeFilter.FILTER_REJECT;
-          }
+  function escapeMarkdownText(text) {
+    return text.replace(/\u00a0/g, " ");
+  }
 
-          const role = node.getAttribute?.("role");
-          if (role && blockedRoles.has(role)) {
-            return NodeFilter.FILTER_REJECT;
-          }
+  function serializeChildren(node) {
+    return Array.from(node.childNodes)
+      .map((child) => serializeNodeToMarkdown(child))
+      .join("");
+  }
 
-          if (
-            node.getAttribute?.("aria-hidden") === "true" ||
-            node.closest?.("[aria-hidden='true']")
-          ) {
-            return NodeFilter.FILTER_REJECT;
-          }
+  function serializeList(listElement, depth = 0) {
+    const items = Array.from(listElement.children).filter((child) => child.tagName === "LI");
+    return items
+      .map((item, index) => {
+        const marker = listElement.tagName === "OL" ? `${index + 1}. ` : "- ";
+        const content = serializeChildren(item)
+          .trim()
+          .replace(/\n/g, `\n${"  ".repeat(depth + 1)}`);
+        return `${"  ".repeat(depth)}${marker}${content}`;
+      })
+      .join("\n");
+  }
 
-          return NodeFilter.FILTER_SKIP;
-        }
-      }
-    );
-
-    const lines = [];
-    let currentNode = walker.nextNode();
-    while (currentNode) {
-      if (currentNode.nodeType === Node.TEXT_NODE) {
-        const text = currentNode.textContent.replace(/\s+/g, " ").trim();
-        if (text) {
-          lines.push(text);
-        }
-      }
-      currentNode = walker.nextNode();
+  function serializeTable(tableElement) {
+    const rows = Array.from(tableElement.querySelectorAll("tr"));
+    if (!rows.length) {
+      return "";
     }
 
-    return lines
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    const markdownRows = rows.map((row) =>
+      `| ${Array.from(row.children)
+        .map((cell) => serializeChildren(cell).replace(/\n+/g, " ").trim())
+        .join(" | ")} |`
+    );
+
+    if (rows[0].children.length) {
+      markdownRows.splice(
+        1,
+        0,
+        `| ${Array.from(rows[0].children)
+          .map(() => "---")
+          .join(" | ")} |`
+      );
+    }
+
+    return markdownRows.join("\n");
+  }
+
+  function serializeNodeToMarkdown(node) {
+    if (!node) {
+      return "";
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeMarkdownText(node.textContent || "");
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return "";
+    }
+
+    if (
+      node.getAttribute("aria-hidden") === "true" ||
+      ["BUTTON", "NAV", "SVG", "SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"].includes(node.tagName)
+    ) {
+      return "";
+    }
+
+    const content = serializeChildren(node);
+
+    switch (node.tagName) {
+      case "BR":
+        return "\n";
+      case "P":
+        return `${content.trim()}\n\n`;
+      case "DIV":
+      case "SECTION":
+      case "ARTICLE":
+        return content;
+      case "EM":
+      case "I":
+        return `*${content.trim()}*`;
+      case "STRONG":
+      case "B":
+        return `**${content.trim()}**`;
+      case "CODE":
+        if (node.parentElement?.tagName === "PRE") {
+          return content;
+        }
+        return `\`${content.trim()}\``;
+      case "PRE": {
+        const code = node.textContent?.replace(/\n$/, "") || "";
+        return `\n\`\`\`\n${code}\n\`\`\`\n`;
+      }
+      case "A": {
+        const href = node.getAttribute("href") || "";
+        const label = content.trim() || href;
+        return href ? `[${label}](${href})` : label;
+      }
+      case "UL":
+      case "OL":
+        return `${serializeList(node)}\n\n`;
+      case "LI":
+        return content;
+      case "BLOCKQUOTE":
+        return `${content
+          .trim()
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n")}\n\n`;
+      case "TABLE":
+        return `${serializeTable(node)}\n\n`;
+      case "HR":
+        return "\n---\n";
+      default:
+        return content;
+    }
+  }
+
+  function extractTextFromElement(rootElement) {
+    return normalizeInlineWhitespace(
+      serializeNodeToMarkdown(rootElement)
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
+    );
   }
 
   function getConversationTitle() {
@@ -491,6 +568,39 @@
     };
   }
 
+  function handlePossibleNavigation() {
+    const nextConversationId = window.location.pathname;
+    if (nextConversationId === activeConversationId) {
+      return;
+    }
+
+    activeConversationId = nextConversationId;
+    resetOverlayState("Conversation changed. Preview cleared.");
+  }
+
+  function installNavigationTracking() {
+    if (!window.__convoExporterNavPatched) {
+      window.__convoExporterNavPatched = true;
+
+      const wrapHistoryMethod = (methodName) => {
+        const original = history[methodName];
+        history[methodName] = function wrappedHistoryMethod(...args) {
+          const result = original.apply(this, args);
+          window.dispatchEvent(new Event("convo-exporter:navigation"));
+          return result;
+        };
+      };
+
+      wrapHistoryMethod("pushState");
+      wrapHistoryMethod("replaceState");
+      window.addEventListener("popstate", () => {
+        window.dispatchEvent(new Event("convo-exporter:navigation"));
+      });
+    }
+
+    window.addEventListener("convo-exporter:navigation", handlePossibleNavigation);
+  }
+
   async function fetchConversationFromApi(conversationId) {
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
@@ -578,6 +688,8 @@
   root.querySelector("#ce-close").addEventListener("click", () => {
     root.style.display = "none";
   });
+
+  installNavigationTracking();
 
   root.querySelector("#ce-preview").addEventListener("click", async () => {
     try {
