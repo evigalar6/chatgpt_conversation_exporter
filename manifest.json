@@ -18,6 +18,13 @@
     "default_title": "Conversation Exporter"
   },
   "permissions": [
-    "downloads"
+    "activeTab",
+    "downloads",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
   ]
 }

@@ -10,13 +10,18 @@
     <main class="app">
       <header class="hero">
         <h1>Conversation Exporter</h1>
-        <p>Paste conversation JSON and export formatted turns.</p>
+        <p>Preview pasted JSON manually, or export the current ChatGPT conversation in one click.</p>
       </header>
 
       <label class="field">
         <span>Conversation JSON</span>
         <textarea id="jsonInput" spellcheck="false" placeholder='{"messages":[...]}'></textarea>
       </label>
+
+      <section class="actions">
+        <button id="loadCurrentChatButton" type="button">Load Current Chat</button>
+        <button id="exportCurrentChatButton" type="button">Export Current Chat</button>
+      </section>
 
       <section class="actions">
         <button id="loadFileButton" type="button">Load JSON File</button>
@@ -44,8 +49,8 @@
       </section>
 
       <section class="actions">
-        <button id="previewButton" type="button">Preview</button>
-        <button id="exportButton" type="button">Export</button>
+        <button id="previewButton" type="button">Preview Pasted JSON</button>
+        <button id="exportButton" type="button">Export Pasted JSON</button>
       </section>
 
       <label class="field">

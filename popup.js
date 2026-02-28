@@ -1,5 +1,7 @@
 const jsonInput = document.getElementById("jsonInput");
 const fileInput = document.getElementById("fileInput");
+const loadCurrentChatButton = document.getElementById("loadCurrentChatButton");
+const exportCurrentChatButton = document.getElementById("exportCurrentChatButton");
 const loadFileButton = document.getElementById("loadFileButton");
 const assistantNameInput = document.getElementById("assistantName");
 const userNameInput = document.getElementById("userName");
@@ -204,13 +206,12 @@ function formatTurns(turns, assistantName, userName) {
     .join("\n\n***\n\n");
 }
 
-function buildExport() {
-  const rawJson = jsonInput.value.trim();
+function parseConversationJson(rawJson) {
   const assistantName = assistantNameInput.value.trim() || "Kai";
   const userName = userNameInput.value.trim() || "Val";
 
   if (!rawJson) {
-    throw new Error("Paste the conversation JSON first.");
+    throw new Error("Load a conversation JSON first.");
   }
 
   let parsedJson;
@@ -225,7 +226,63 @@ function buildExport() {
     throw new Error("No user or assistant messages were found in this JSON shape.");
   }
 
-  return formatTurns(turns, assistantName, userName);
+  return {
+    formattedText: formatTurns(turns, assistantName, userName),
+    parsedJson
+  };
+}
+
+function buildExport() {
+  return parseConversationJson(jsonInput.value.trim()).formattedText;
+}
+
+function getConversationIdFromUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    const match = url.pathname.match(/\/c\/([a-z0-9-]+)/i);
+    return match ? match[1] : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+async function getActiveTab() {
+  const tabs = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+
+  return tabs[0];
+}
+
+async function fetchConversationFromPage(tabId) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async () => {
+      const match = window.location.pathname.match(/\/c\/([a-z0-9-]+)/i);
+      if (!match) {
+        throw new Error("Open a specific ChatGPT conversation first.");
+      }
+
+      const response = await fetch(
+        `${window.location.origin}/backend-api/conversation/${match[1]}`,
+        {
+          credentials: "include",
+          headers: {
+            accept: "application/json"
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Chat fetch failed (${response.status}).`);
+      }
+
+      return response.json();
+    }
+  });
+
+  return result;
 }
 
 function previewExport() {
@@ -241,37 +298,115 @@ function previewExport() {
 
 function exportConversation() {
   try {
-    const formattedText = buildExport();
-    const format = getSelectedFormat();
-    const blob = new Blob([formattedText], {
-      type: format === "md" ? "text/markdown" : "text/plain"
-    });
-    const url = URL.createObjectURL(blob);
-
-    chrome.downloads.download(
-      {
-        url,
-        filename: `conversation-export.${format}`,
-        saveAs: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          setStatus(chrome.runtime.lastError.message, true);
-        } else {
-          previewOutput.value = formattedText;
-          setStatus(`Exported as .${format}.`);
-        }
-
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
+    const rawJson = jsonInput.value.trim();
+    const { formattedText, parsedJson } = parseConversationJson(rawJson);
+    downloadExport(
+      formattedText,
+      parsedJson?.title || "conversation-export"
     );
   } catch (error) {
     setStatus(error.message, true);
   }
 }
 
+function sanitizeFilenamePart(value, fallback) {
+  const safeValue = String(value || "")
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return safeValue || fallback;
+}
+
+function downloadExport(formattedText, suggestedName = "conversation-export") {
+  const format = getSelectedFormat();
+  const blob = new Blob([formattedText], {
+    type: format === "md" ? "text/markdown" : "text/plain"
+  });
+  const url = URL.createObjectURL(blob);
+
+  chrome.downloads.download(
+    {
+      url,
+      filename: `${sanitizeFilenamePart(suggestedName, "conversation-export")}.${format}`,
+      saveAs: true
+    },
+    () => {
+      if (chrome.runtime.lastError) {
+        setStatus(chrome.runtime.lastError.message, true);
+      } else {
+        previewOutput.value = formattedText;
+        setStatus(`Exported as .${format}.`);
+      }
+
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  );
+}
+
 function loadJsonFromFile() {
   fileInput.click();
+}
+
+async function loadCurrentChat() {
+  try {
+    setStatus("Loading conversation from current tab...");
+    const activeTab = await getActiveTab();
+
+    if (!activeTab?.id || !activeTab.url) {
+      throw new Error("No active tab is available.");
+    }
+
+    const url = new URL(activeTab.url);
+    if (!["chatgpt.com", "chat.openai.com"].includes(url.hostname)) {
+      throw new Error("Open the target conversation on ChatGPT first.");
+    }
+
+    const conversationId = getConversationIdFromUrl(activeTab.url);
+    if (!conversationId) {
+      throw new Error("Open a specific ChatGPT conversation first.");
+    }
+
+    const conversationJson = await fetchConversationFromPage(activeTab.id);
+    jsonInput.value = JSON.stringify(conversationJson, null, 2);
+    previewOutput.value = "";
+    setStatus("Current chat loaded.");
+  } catch (error) {
+    const message =
+      error?.message || "Failed to load the conversation from the current tab.";
+    setStatus(message, true);
+  }
+}
+
+async function exportCurrentChat() {
+  try {
+    setStatus("Exporting current chat...");
+    const activeTab = await getActiveTab();
+
+    if (!activeTab?.id || !activeTab.url) {
+      throw new Error("No active tab is available.");
+    }
+
+    const url = new URL(activeTab.url);
+    if (!["chatgpt.com", "chat.openai.com"].includes(url.hostname)) {
+      throw new Error("Open the target conversation on ChatGPT first.");
+    }
+
+    const conversationJson = await fetchConversationFromPage(activeTab.id);
+    const rawJson = JSON.stringify(conversationJson, null, 2);
+    const { formattedText, parsedJson } = parseConversationJson(rawJson);
+
+    jsonInput.value = rawJson;
+    previewOutput.value = formattedText;
+    downloadExport(
+      formattedText,
+      parsedJson?.title || `conversation-${getConversationIdFromUrl(activeTab.url)}`
+    );
+  } catch (error) {
+    const message =
+      error?.message || "Failed to export the conversation from the current tab.";
+    setStatus(message, true);
+  }
 }
 
 async function handleFileSelection(event) {
@@ -291,6 +426,8 @@ async function handleFileSelection(event) {
   }
 }
 
+exportCurrentChatButton.addEventListener("click", exportCurrentChat);
+loadCurrentChatButton.addEventListener("click", loadCurrentChat);
 loadFileButton.addEventListener("click", loadJsonFromFile);
 fileInput.addEventListener("change", handleFileSelection);
 previewButton.addEventListener("click", previewExport);
