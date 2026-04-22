@@ -83,6 +83,16 @@ function getRole(candidate) {
   return rawRole.toLowerCase();
 }
 
+function isHiddenMessage(candidate) {
+  const metadata = candidate?.metadata ?? candidate?.message?.metadata;
+
+  return Boolean(
+    metadata?.is_visually_hidden_from_conversation ||
+      metadata?.is_user_system_message ||
+      metadata?.is_contextual_answers_system_message
+  );
+}
+
 function getMessageText(candidate) {
   const sources = [
     candidate?.text,
@@ -182,6 +192,10 @@ function extractTurnsFromMessages(rawMessages) {
   const turns = [];
 
   for (const rawMessage of rawMessages) {
+    if (isHiddenMessage(rawMessage)) {
+      continue;
+    }
+
     const role = getRole(rawMessage);
     const contentType =
       rawMessage?.content?.content_type ??
