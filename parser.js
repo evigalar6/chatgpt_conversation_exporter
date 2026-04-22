@@ -102,21 +102,46 @@ function getMessageText(candidate) {
   return normalizeText(text);
 }
 
-function flattenConversation(input) {
-  if (input?.mapping && typeof input.mapping === "object") {
-    const path = [];
-    let currentNodeId = input.current_node;
-
-    while (currentNodeId && input.mapping[currentNodeId]) {
-      path.push(input.mapping[currentNodeId]);
-      currentNodeId = input.mapping[currentNodeId].parent;
-    }
-
-    return path.reverse();
+function getConversationPathFromMapping(input) {
+  if (!input?.mapping || typeof input.mapping !== "object") {
+    return [];
   }
 
+  const path = [];
+  const seen = new Set();
+  let currentNodeId = input.current_node;
+
+  while (currentNodeId && input.mapping[currentNodeId] && !seen.has(currentNodeId)) {
+    seen.add(currentNodeId);
+    path.push(input.mapping[currentNodeId]);
+    currentNodeId = input.mapping[currentNodeId].parent;
+  }
+
+  return path.reverse();
+}
+
+function getSortedMappingMessages(input) {
+  if (!input?.mapping || typeof input.mapping !== "object") {
+    return [];
+  }
+
+  return Object.values(input.mapping).sort((left, right) => {
+    const leftTime = Number(left?.message?.create_time ?? left?.create_time ?? 0);
+    const rightTime = Number(right?.message?.create_time ?? right?.create_time ?? 0);
+
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+
+    return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+  });
+}
+
+function getCandidateMessageArrays(input) {
+  const candidates = [];
+
   if (Array.isArray(input)) {
-    return input;
+    candidates.push(input);
   }
 
   const candidateArrays = [
@@ -124,24 +149,36 @@ function flattenConversation(input) {
     input?.conversation,
     input?.conversation?.messages,
     input?.data?.messages,
-    input?.data?.conversation?.messages
+    input?.data?.conversation?.messages,
+    input?.linear_conversation,
+    input?.conversation?.linear_conversation,
+    input?.data?.linear_conversation
   ];
 
   for (const candidate of candidateArrays) {
     if (Array.isArray(candidate)) {
-      return candidate;
+      candidates.push(candidate);
     }
   }
 
-  if (input?.mapping && typeof input.mapping === "object") {
-    return Object.values(input.mapping);
+  const mappingPath = getConversationPathFromMapping(input);
+  if (mappingPath.length) {
+    candidates.push(mappingPath);
   }
 
-  return [];
+  const mappingMessages = getSortedMappingMessages(input);
+  if (mappingMessages.length) {
+    candidates.push(mappingMessages);
+  }
+
+  return candidates;
 }
 
-function extractTurns(parsedJson) {
-  const rawMessages = flattenConversation(parsedJson);
+function scoreTurns(turns) {
+  return turns.reduce((total, turn) => total + turn.text.length, 0) + turns.length * 1000;
+}
+
+function extractTurnsFromMessages(rawMessages) {
   const turns = [];
 
   for (const rawMessage of rawMessages) {
@@ -174,6 +211,24 @@ function extractTurns(parsedJson) {
   }
 
   return turns;
+}
+
+function extractTurns(parsedJson) {
+  const candidateArrays = getCandidateMessageArrays(parsedJson);
+  let bestTurns = [];
+  let bestScore = -1;
+
+  for (const candidate of candidateArrays) {
+    const turns = extractTurnsFromMessages(candidate);
+    const score = scoreTurns(turns);
+
+    if (score > bestScore) {
+      bestTurns = turns;
+      bestScore = score;
+    }
+  }
+
+  return bestTurns;
 }
 
 function formatTurns(turns, assistantName, userName) {
