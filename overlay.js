@@ -617,17 +617,61 @@
     window.addEventListener("convo-exporter:navigation", handlePossibleNavigation);
   }
 
+  function getCookieValue(name) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  async function getAccessToken() {
+    const response = await fetch(`${window.location.origin}/api/auth/session`, {
+      credentials: "include",
+      headers: {
+        accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Session fetch failed (${response.status}): ${errorText}`);
+    }
+
+    const session = await response.json();
+    const accessToken =
+      session?.accessToken ??
+      session?.access_token ??
+      session?.user?.accessToken ??
+      session?.user?.access_token ??
+      "";
+
+    if (!accessToken) {
+      throw new Error("Session access token not found.");
+    }
+
+    return accessToken;
+  }
+
   async function fetchConversationFromApi(conversationId) {
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
     }
 
+    const accessToken = await getAccessToken();
+    const deviceId = getCookieValue("oai-did");
+    const language = getCookieValue("oai-locale") || navigator.language || "en-US";
+    const targetPath = `/backend-api/conversation/${conversationId}`;
+
     const response = await fetch(
-      `${window.location.origin}/backend-api/conversation/${conversationId}`,
+      `${window.location.origin}${targetPath}`,
       {
         credentials: "include",
         headers: {
-          accept: "application/json"
+          accept: "application/json",
+          authorization: `Bearer ${accessToken}`,
+          "oai-device-id": deviceId,
+          "oai-language": language,
+          "x-openai-target-path": targetPath,
+          "x-openai-target-route": "/backend-api/conversation/{conversation_id}"
         }
       }
     );
@@ -683,7 +727,11 @@
     const errors = [];
     for (const loadSource of sources) {
       try {
-        return await loadSource();
+        const result = await loadSource();
+        return {
+          ...result,
+          sourceErrors: errors
+        };
       } catch (error) {
         errors.push(error?.message || String(error));
       }
@@ -708,7 +756,7 @@
   }
 
   async function buildFromCurrentChat() {
-    const { conversationJson, source } = await resolveConversationJson();
+    const { conversationJson, source, sourceErrors } = await resolveConversationJson();
     const parsed = parseConversationJson(
       JSON.stringify(conversationJson),
       assistantInput.value.trim() || "Kai",
@@ -729,7 +777,8 @@
         mappingCount,
         messageCount,
         turnsCount: parsed.turns.length,
-        currentNode: conversationJson?.current_node || "n/a"
+        currentNode: conversationJson?.current_node || "n/a",
+        sourceErrors
       }
     };
   }
@@ -750,7 +799,8 @@
         `Turns exported: ${debug.turnsCount}`,
         `Mapping nodes: ${debug.mappingCount}`,
         `Messages array length: ${debug.messageCount}`,
-        `Current node: ${debug.currentNode}`
+        `Current node: ${debug.currentNode}`,
+        `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
       setStatus(`Preview updated from ${source}.`);
     } catch (error) {
@@ -769,7 +819,8 @@
         `Turns exported: ${debug.turnsCount}`,
         `Mapping nodes: ${debug.mappingCount}`,
         `Messages array length: ${debug.messageCount}`,
-        `Current node: ${debug.currentNode}`
+        `Current node: ${debug.currentNode}`,
+        `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
       downloadText(formattedText, parsedJson?.title || getConversationId());
       setStatus(`Export started from ${source}.`);
