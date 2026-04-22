@@ -630,31 +630,50 @@
       throw new Error("Open a specific ChatGPT conversation first.");
     }
 
-    const pageStateMatch =
-      findConversationInWindow(conversationId) ||
-      findConversationInScripts(conversationId) ||
-      findConversationInStorage(window.sessionStorage, conversationId) ||
-      findConversationInStorage(window.localStorage, conversationId);
+    const sources = [
+      async () => ({
+        conversationJson: await fetchConversationFromApi(conversationId),
+        source: "backend-api"
+      }),
+      async () => {
+        const pageStateMatch =
+          findConversationInWindow(conversationId) ||
+          findConversationInScripts(conversationId) ||
+          findConversationInStorage(window.sessionStorage, conversationId) ||
+          findConversationInStorage(window.localStorage, conversationId);
 
-    if (pageStateMatch) {
-      return {
-        conversationJson: pageStateMatch,
-        source: "page-state"
-      };
+        if (!pageStateMatch) {
+          throw new Error("Conversation not found in page state.");
+        }
+
+        return {
+          conversationJson: pageStateMatch,
+          source: "page-state"
+        };
+      },
+      async () => {
+        const domMatch = extractConversationFromDom();
+        if (!domMatch) {
+          throw new Error("Conversation not found in DOM.");
+        }
+
+        return {
+          conversationJson: domMatch,
+          source: "dom"
+        };
+      }
+    ];
+
+    const errors = [];
+    for (const loadSource of sources) {
+      try {
+        return await loadSource();
+      } catch (error) {
+        errors.push(error?.message || String(error));
+      }
     }
 
-    const domMatch = extractConversationFromDom();
-    if (domMatch) {
-      return {
-        conversationJson: domMatch,
-        source: "dom"
-      };
-    }
-
-    return {
-      conversationJson: await fetchConversationFromApi(conversationId),
-      source: "backend-api"
-    };
+    throw new Error(`Unable to load the conversation. ${errors.join(" ")}`.trim());
   }
 
   function downloadText(text, filename) {
