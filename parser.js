@@ -273,7 +273,8 @@ function parseConversationJson(rawJson, assistantName = "Kai", userName = "Val")
 
   return {
     formattedText: formatTurns(turns, assistantName, userName),
-    parsedJson
+    parsedJson,
+    turns
   };
 }
 

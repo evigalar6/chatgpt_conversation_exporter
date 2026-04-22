@@ -101,6 +101,15 @@
     }
     #${overlayId} .status { min-height: 18px; color: #cfe6ff; }
     #${overlayId} .muted { color: #b8d1eb; font-size: 12px; }
+    #${overlayId} .debug {
+      min-height: 34px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(237, 246, 255, 0.08);
+      border: 1px solid rgba(150, 190, 235, 0.2);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
   `;
   document.documentElement.appendChild(style);
 
@@ -144,6 +153,7 @@
       <textarea id="ce-preview-output" readonly></textarea>
     </label>
     <div id="ce-status" class="status"></div>
+    <div id="ce-debug" class="muted debug">Debug: waiting for preview.</div>
   `;
   document.documentElement.appendChild(root);
 
@@ -151,6 +161,7 @@
   const userInput = root.querySelector("#ce-user");
   const previewOutput = root.querySelector("#ce-preview-output");
   const statusOutput = root.querySelector("#ce-status");
+  const debugOutput = root.querySelector("#ce-debug");
   let activeConversationId = window.location.pathname;
 
   function setStatus(message, isError = false) {
@@ -170,6 +181,11 @@
   function resetOverlayState(message = "Conversation changed. Preview cleared.") {
     previewOutput.value = "";
     setStatus(message);
+    debugOutput.textContent = "Debug: waiting for preview.";
+  }
+
+  function setDebugInfo(lines) {
+    debugOutput.textContent = lines.join("\n");
   }
 
   function looksLikeConversation(candidate, conversationId) {
@@ -698,9 +714,23 @@
       assistantInput.value.trim() || "Kai",
       userInput.value.trim() || "Val"
     );
+
+    const mappingCount =
+      conversationJson?.mapping && typeof conversationJson.mapping === "object"
+        ? Object.keys(conversationJson.mapping).length
+        : 0;
+    const messageCount = Array.isArray(conversationJson?.messages) ? conversationJson.messages.length : 0;
+
     return {
       ...parsed,
-      source
+      source,
+      debug: {
+        source,
+        mappingCount,
+        messageCount,
+        turnsCount: parsed.turns.length,
+        currentNode: conversationJson?.current_node || "n/a"
+      }
     };
   }
 
@@ -713,10 +743,18 @@
   root.querySelector("#ce-preview").addEventListener("click", async () => {
     try {
       setStatus("Loading preview...");
-      const { formattedText, source } = await buildFromCurrentChat();
+      const { formattedText, source, debug } = await buildFromCurrentChat();
       previewOutput.value = formattedText;
+      setDebugInfo([
+        `Debug source: ${debug.source}`,
+        `Turns exported: ${debug.turnsCount}`,
+        `Mapping nodes: ${debug.mappingCount}`,
+        `Messages array length: ${debug.messageCount}`,
+        `Current node: ${debug.currentNode}`
+      ]);
       setStatus(`Preview updated from ${source}.`);
     } catch (error) {
+      setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);
       setStatus(error.message || "Failed to preview the current chat.", true);
     }
   });
@@ -724,11 +762,19 @@
   root.querySelector("#ce-export").addEventListener("click", async () => {
     try {
       setStatus("Exporting current chat...");
-      const { formattedText, parsedJson, source } = await buildFromCurrentChat();
+      const { formattedText, parsedJson, source, debug } = await buildFromCurrentChat();
       previewOutput.value = formattedText;
+      setDebugInfo([
+        `Debug source: ${debug.source}`,
+        `Turns exported: ${debug.turnsCount}`,
+        `Mapping nodes: ${debug.mappingCount}`,
+        `Messages array length: ${debug.messageCount}`,
+        `Current node: ${debug.currentNode}`
+      ]);
       downloadText(formattedText, parsedJson?.title || getConversationId());
       setStatus(`Export started from ${source}.`);
     } catch (error) {
+      setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);
       setStatus(error.message || "Failed to export the current chat.", true);
     }
   });
