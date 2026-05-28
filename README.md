@@ -23,7 +23,7 @@ user message
 1. Open `chrome://extensions`
 2. Enable Developer mode
 3. Click `Load unpacked`
-4. Select `/Users/evigalar/convo_exporter`
+4. Select the extracted or cloned extension folder
 
 ## Notes
 
