@@ -21,7 +21,7 @@
 
 body {
   margin: 0;
-  min-width: 0;
+  width: 320px;
   font-family: Georgia, "Times New Roman", serif;
   color: var(--ink);
   background: var(--bg);
@@ -45,60 +45,6 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 14px;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.field span {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-textarea,
-input[type="text"] {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: 0 6px 18px var(--shadow);
-}
-
-textarea {
-  resize: vertical;
-  min-height: 180px;
-  font: 13px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-}
-
-#previewOutput {
-  min-height: 160px;
-}
-
-.compact input {
-  height: 42px;
-  font-size: 14px;
-}
-
-.format-picker {
-  display: flex;
-  gap: 16px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: 0 6px 18px var(--shadow);
 }
 
 .actions {

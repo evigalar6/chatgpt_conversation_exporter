@@ -10,57 +10,16 @@
     <main class="app">
       <header class="hero">
         <h1>Conversation Exporter</h1>
-        <p>Open the exporter inside the current ChatGPT page, or export pasted JSON manually.</p>
+        <p>Open the exporter inside the current ChatGPT conversation.</p>
       </header>
 
       <section class="actions">
         <button id="openOverlayButton" type="button">Open Exporter On Current Page</button>
       </section>
 
-      <label class="field">
-        <span>Conversation JSON</span>
-        <textarea id="jsonInput" spellcheck="false" placeholder='{"messages":[...]}'></textarea>
-      </label>
-
-      <section class="actions">
-        <button id="loadFileButton" type="button">Load JSON File</button>
-      </section>
-
-      <input id="fileInput" type="file" accept=".json,application/json" hidden>
-
-      <section class="row">
-        <label class="field compact">
-          <span>Assistant name</span>
-          <input id="assistantName" type="text" placeholder="Assistant">
-        </label>
-        <label class="field compact">
-          <span>User name</span>
-          <input id="userName" type="text" placeholder="User">
-        </label>
-      </section>
-
-      <section class="field">
-        <span>Export format</span>
-        <div class="format-picker">
-          <label><input type="radio" name="format" value="txt" checked> TXT</label>
-          <label><input type="radio" name="format" value="md"> MD</label>
-        </div>
-      </section>
-
-      <section class="actions">
-        <button id="previewButton" type="button">Preview Pasted JSON</button>
-        <button id="exportButton" type="button">Export Pasted JSON</button>
-      </section>
-
-      <label class="field">
-        <span>Preview</span>
-        <textarea id="previewOutput" readonly></textarea>
-      </label>
-
       <p id="status" class="status" aria-live="polite"></p>
     </main>
 
-    <script src="parser.js"></script>
     <script src="popup.js"></script>
   </body>
   </html>

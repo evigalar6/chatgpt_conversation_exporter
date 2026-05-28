@@ -2,8 +2,8 @@
 
 A Chrome extension that:
 
-- accepts pasted conversation JSON
-- extracts `user` and `assistant` turns
+- opens an in-page exporter on ChatGPT conversations
+- extracts `user` and `assistant` turns from the current conversation
 - formats each message as:
 
 ```md
@@ -17,6 +17,13 @@ user message
 ```
 
 - exports the result as `.txt` or `.md`
+
+## Usage
+
+1. Open a ChatGPT conversation.
+2. Click the extension button.
+3. Click `Open Exporter On Current Page`.
+4. Use the in-page exporter to preview or export the conversation.
 
 ## Load the extension
 
