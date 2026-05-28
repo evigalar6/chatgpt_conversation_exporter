@@ -23,8 +23,8 @@ function getSelectedFormat() {
 function parseManualJson(rawJson) {
   return parseConversationJson(
     rawJson,
-    assistantNameInput.value.trim() || "Kai",
-    userNameInput.value.trim() || "Val"
+    assistantNameInput.value.trim() || "Assistant",
+    userNameInput.value.trim() || "User"
   );
 }
 

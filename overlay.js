@@ -126,11 +126,11 @@
     <div class="row">
       <label>
         Assistant name
-        <input id="ce-assistant" type="text" value="Kai">
+        <input id="ce-assistant" type="text" placeholder="Assistant">
       </label>
       <label>
         User name
-        <input id="ce-user" type="text" value="Val">
+        <input id="ce-user" type="text" placeholder="User">
       </label>
     </div>
     <div class="row">
@@ -759,8 +759,8 @@
     const { conversationJson, source, sourceErrors } = await resolveConversationJson();
     const parsed = parseConversationJson(
       JSON.stringify(conversationJson),
-      assistantInput.value.trim() || "Kai",
-      userInput.value.trim() || "Val"
+      assistantInput.value.trim() || "Assistant",
+      userInput.value.trim() || "User"
     );
 
     const mappingCount =

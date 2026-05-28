@@ -14,8 +14,13 @@
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"
     },
-    "default_popup": "popup.html",
     "default_title": "Conversation Exporter"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
   },
   "web_accessible_resources": [
     {
@@ -33,6 +38,7 @@
     "activeTab",
     "downloads",
     "scripting",
+    "sidePanel",
     "tabs"
   ],
   "host_permissions": [

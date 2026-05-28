@@ -7,12 +7,12 @@ A Chrome extension that:
 - formats each message as:
 
 ```md
-**Kai:**
+**Assistant:**
 assistant message
 
 ***
 
-**Val:**
+**User:**
 user message
 ```
 

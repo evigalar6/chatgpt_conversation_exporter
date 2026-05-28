@@ -21,7 +21,7 @@
 
 body {
   margin: 0;
-  min-width: 420px;
+  min-width: 0;
   font-family: Georgia, "Times New Roman", serif;
   color: var(--ink);
   background: var(--bg);

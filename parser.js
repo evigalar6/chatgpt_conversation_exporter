@@ -254,7 +254,7 @@ function formatTurns(turns, assistantName, userName) {
     .join("\n\n***\n\n");
 }
 
-function parseConversationJson(rawJson, assistantName = "Kai", userName = "Val") {
+function parseConversationJson(rawJson, assistantName = "Assistant", userName = "User") {
   if (!rawJson) {
     throw new Error("Load a conversation JSON first.");
   }
