@@ -3,7 +3,13 @@
   const existing = document.getElementById(overlayId);
   if (existing) {
     existing.style.display = "flex";
+    existing.querySelector("#ce-close")?.focus();
     return;
+  }
+
+  const parser = globalThis.__conversationExporterParser;
+  if (!parser) {
+    throw new Error("Conversation Exporter parser failed to load.");
   }
 
   const style = document.createElement("style");
@@ -33,6 +39,8 @@
     #${overlayId} * { box-sizing: border-box; }
     #${overlayId} h2 { margin: 0; font-size: 20px; }
     #${overlayId} p, #${overlayId} label { margin: 0; }
+    #${overlayId} fieldset { margin: 0; padding: 0; border: 0; }
+    #${overlayId} legend { margin-bottom: 6px; }
     #${overlayId} .row { display: flex; gap: 8px; }
     #${overlayId} .row > * { flex: 1; }
     #${overlayId} .row.top-row { align-items: start; }
@@ -57,6 +65,13 @@
       color: white;
       cursor: pointer;
       font: 600 13px/1 Georgia, "Times New Roman", serif;
+    }
+    #${overlayId} button:disabled { opacity: 0.6; cursor: wait; }
+    #${overlayId} button:focus-visible,
+    #${overlayId} input:focus-visible,
+    #${overlayId} textarea:focus-visible {
+      outline: 3px solid rgba(121, 188, 255, 0.75);
+      outline-offset: 2px;
     }
     #${overlayId} button.secondary {
       background: rgba(234, 244, 255, 0.14);
@@ -99,6 +114,10 @@
       color: #ffffff;
       box-shadow: 0 10px 20px rgba(58, 123, 214, 0.28);
     }
+    #${overlayId} .toggle-group input:focus-visible + label {
+      outline: 3px solid rgba(121, 188, 255, 0.75);
+      outline-offset: 2px;
+    }
     #${overlayId} .status { min-height: 18px; color: #cfe6ff; }
     #${overlayId} .muted { color: #b8d1eb; font-size: 12px; }
     #${overlayId} .debug {
@@ -110,15 +129,20 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
+    #${overlayId} .diagnostics summary { cursor: pointer; color: #b8d1eb; }
+    #${overlayId} .diagnostics[open] summary { margin-bottom: 6px; }
   `;
   document.documentElement.appendChild(style);
 
   const root = document.createElement("section");
   root.id = overlayId;
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "false");
+  root.setAttribute("aria-labelledby", "ce-title");
   root.innerHTML = `
     <div class="row top-row">
       <div>
-        <h2>Conversation Exporter</h2>
+        <h2 id="ce-title">Conversation Exporter</h2>
         <p class="muted">Export this ChatGPT conversation without copy-paste.</p>
       </div>
       <button id="ce-close" class="secondary" type="button">Close</button>
@@ -134,15 +158,15 @@
       </label>
     </div>
     <div class="row">
-      <label>
-        Format
+      <fieldset>
+        <legend>Format</legend>
         <div class="toggle-group">
           <input id="ce-format-md" type="radio" name="ce-format" value="md" checked>
           <label for="ce-format-md">MD</label>
           <input id="ce-format-txt" type="radio" name="ce-format" value="txt">
           <label for="ce-format-txt">TXT</label>
         </div>
-      </label>
+      </fieldset>
       <div class="stack" style="justify-content:end">
         <button id="ce-preview" type="button">Preview Current Chat</button>
         <button id="ce-export" type="button">Export Current Chat</button>
@@ -150,10 +174,13 @@
     </div>
     <label>
       Preview
-      <textarea id="ce-preview-output" readonly></textarea>
+      <textarea id="ce-preview-output" aria-label="Export preview" readonly></textarea>
     </label>
-    <div id="ce-status" class="status"></div>
-    <div id="ce-debug" class="muted debug">Debug: waiting for preview.</div>
+    <div id="ce-status" class="status" aria-live="polite"></div>
+    <details class="diagnostics">
+      <summary>Diagnostics</summary>
+      <div id="ce-debug" class="muted debug">Waiting for preview.</div>
+    </details>
   `;
   document.documentElement.appendChild(root);
 
@@ -181,7 +208,7 @@
   function resetOverlayState(message = "Conversation changed. Preview cleared.") {
     previewOutput.value = "";
     setStatus(message);
-    debugOutput.textContent = "Debug: waiting for preview.";
+    debugOutput.textContent = "Waiting for preview.";
   }
 
   function setDebugInfo(lines) {
@@ -748,7 +775,7 @@
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${sanitizeFilenamePart(filename, "conversation-export")}.${extension}`;
+    link.download = `${parser.sanitizeFilenamePart(filename, "conversation-export")}.${extension}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -757,10 +784,11 @@
 
   async function buildFromCurrentChat() {
     const { conversationJson, source, sourceErrors } = await resolveConversationJson();
-    const parsed = parseConversationJson(
+    const parsed = parser.parseConversationJson(
       JSON.stringify(conversationJson),
       assistantInput.value.trim() || "Assistant",
-      userInput.value.trim() || "User"
+      userInput.value.trim() || "User",
+      getSelectedFormat()
     );
 
     const mappingCount =
@@ -785,6 +813,12 @@
 
   root.querySelector("#ce-close").addEventListener("click", () => {
     root.style.display = "none";
+  });
+
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      root.style.display = "none";
+    }
   });
 
   installNavigationTracking();
@@ -822,7 +856,7 @@
         `Current node: ${debug.currentNode}`,
         `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
-      downloadText(formattedText, parsedJson?.title || getConversationId());
+      downloadText(formattedText, parsedJson?.title || getConversationTitle());
       setStatus(`Export started from ${source}.`);
     } catch (error) {
       setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);

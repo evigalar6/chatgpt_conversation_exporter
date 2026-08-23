@@ -3,7 +3,7 @@ const statusOutput = document.getElementById("status");
 
 function setStatus(message, isError = false) {
   statusOutput.textContent = message;
-  statusOutput.style.color = isError ? "#8b1e1e" : "#64554b";
+  statusOutput.style.color = isError ? "#8b1e1e" : "#48607d";
 }
 
 async function getActiveTab() {
@@ -27,6 +27,7 @@ function getConversationIdFromUrl(urlString) {
 
 async function openOverlay() {
   try {
+    openOverlayButton.disabled = true;
     setStatus("Opening exporter on current tab...");
     const activeTab = await getActiveTab();
 
@@ -54,6 +55,8 @@ async function openOverlay() {
     window.close();
   } catch (error) {
     setStatus(error?.message || "Failed to open the exporter.", true);
+  } finally {
+    openOverlayButton.disabled = false;
   }
 }
 

@@ -1,3 +1,4 @@
+(() => {
 function normalizeText(value) {
   if (typeof value !== "string") {
     return "";
@@ -228,6 +229,14 @@ function extractTurnsFromMessages(rawMessages) {
 }
 
 function extractTurns(parsedJson) {
+  const currentPath = getConversationPathFromMapping(parsedJson);
+  if (currentPath.length) {
+    const currentPathTurns = extractTurnsFromMessages(currentPath);
+    if (currentPathTurns.length) {
+      return currentPathTurns;
+    }
+  }
+
   const candidateArrays = getCandidateMessageArrays(parsedJson);
   let bestTurns = [];
   let bestScore = -1;
@@ -245,16 +254,25 @@ function extractTurns(parsedJson) {
   return bestTurns;
 }
 
-function formatTurns(turns, assistantName, userName) {
+function formatTurns(turns, assistantName, userName, format = "md") {
+  const isPlainText = String(format).toLowerCase() === "txt";
+  const separator = isPlainText ? "--------------------" : "***";
+
   return turns
     .map((turn) => {
       const speaker = turn.role === "assistant" ? assistantName : userName;
-      return `**${speaker}:**\n${turn.text}`;
+      const heading = isPlainText ? `${speaker}:` : `**${speaker}:**`;
+      return `${heading}\n${turn.text}`;
     })
-    .join("\n\n***\n\n");
+    .join(`\n\n${separator}\n\n`);
 }
 
-function parseConversationJson(rawJson, assistantName = "Assistant", userName = "User") {
+function parseConversationJson(
+  rawJson,
+  assistantName = "Assistant",
+  userName = "User",
+  format = "md"
+) {
   if (!rawJson) {
     throw new Error("Load a conversation JSON first.");
   }
@@ -272,7 +290,7 @@ function parseConversationJson(rawJson, assistantName = "Assistant", userName = 
   }
 
   return {
-    formattedText: formatTurns(turns, assistantName, userName),
+    formattedText: formatTurns(turns, assistantName, userName, format),
     parsedJson,
     turns
   };
@@ -286,3 +304,9 @@ function sanitizeFilenamePart(value, fallback) {
 
   return safeValue || fallback;
 }
+
+globalThis.__conversationExporterParser = Object.freeze({
+  parseConversationJson,
+  sanitizeFilenamePart
+});
+})();
