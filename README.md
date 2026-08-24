@@ -90,7 +90,7 @@ The extension checks three available sources:
 2. conversation data already present in the page state;
 3. visible message content in the page as a fallback.
 
-The primary source is loaded page by page until ChatGPT returns no older messages. The exporter deduplicates overlapping page boundaries, compares the number of usable turns from every available source, and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate and the number of API pages loaded.
+The primary source is loaded page by page until ChatGPT returns no older messages. Each request asks for up to 1000 turns; if ChatGPT rejects that batch size with HTTP 400, 413, or 422, the current load retries with 100 turns. A 429 response is not retried this way. The exporter deduplicates overlapping page boundaries, compares the number of usable turns from every available source, and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate and the number of API pages loaded.
 
 When you navigate to another conversation in the same ChatGPT tab, the exporter clears names, format, preview, and diagnostics. Results from an older in-progress export are ignored if the conversation changes before it finishes.
 

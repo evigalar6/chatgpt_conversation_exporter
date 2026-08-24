@@ -51,3 +51,11 @@ test("popup references existing local scripts and styles", () => {
     );
   }
 });
+
+test("backend requests ask for a large conversation batch", () => {
+  const overlaySource = fs.readFileSync(path.join(projectRoot, "overlay.js"), "utf8");
+  assert.match(overlaySource, /const preferredBackendPageTurns = 1000;/);
+  assert.match(overlaySource, /const fallbackBackendPageTurns = 100;/);
+  assert.match(overlaySource, /num_turns: String\(backendPageTurns\)/);
+  assert.match(overlaySource, /pageSizeRejectionStatuses\.has\(response\.status\)/);
+});

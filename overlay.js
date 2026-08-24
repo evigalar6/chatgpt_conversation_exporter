@@ -1,5 +1,8 @@
 (function () {
   const overlayId = "convo-exporter-overlay";
+  const preferredBackendPageTurns = 1000;
+  const fallbackBackendPageTurns = 100;
+  const pageSizeRejectionStatuses = new Set([400, 413, 422]);
   const existing = document.getElementById(overlayId);
   if (existing) {
     existing.dispatchEvent(new Event("convo-exporter:open"));
@@ -748,51 +751,48 @@
       headers["chatgpt-account-id"] = accountId;
     }
 
-    const response = await fetch(
-      `${window.location.origin}${targetPath}?include_has_versions=true&num_turns=100`,
-      {
-        credentials: "include",
-        headers
+    let backendPageTurns = preferredBackendPageTurns;
+    async function fetchConversationBatch(path, batchHeaders, beforeMessageId = null) {
+      const query = new URLSearchParams({
+        include_has_versions: "true",
+        num_turns: String(backendPageTurns)
+      });
+      if (beforeMessageId) {
+        query.set("before", beforeMessageId);
       }
-    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Chat fetch failed (${response.status}): ${errorText}`);
+      const response = await fetch(`${window.location.origin}${path}?${query}`, {
+        credentials: "include",
+        headers: batchHeaders
+      });
+      if (
+        !response.ok &&
+        backendPageTurns !== fallbackBackendPageTurns &&
+        pageSizeRejectionStatuses.has(response.status)
+      ) {
+        backendPageTurns = fallbackBackendPageTurns;
+        return fetchConversationBatch(path, batchHeaders, beforeMessageId);
+      }
+      if (!response.ok) {
+        const errorText = await response.text();
+        const label = beforeMessageId ? "Conversation page" : "Chat";
+        throw new Error(`${label} fetch failed (${response.status}): ${errorText}`);
+      }
+      return response.json();
     }
 
-    const initialConversation = await response.json();
+    const initialConversation = await fetchConversationBatch(targetPath, headers);
     const pagingTargetPath = `/backend-api/conversations/${conversationId}/messages`;
 
     const result = await conversationApi.collectConversationPages({
       initialConversation,
       fetchPage: async (beforeMessageId) => {
-        const query = new URLSearchParams({
-          before: beforeMessageId,
-          include_has_versions: "true",
-          num_turns: "100"
-        });
         const pagingHeaders = {
           ...headers,
           "x-openai-target-path": pagingTargetPath,
           "x-openai-target-route": "/backend-api/conversations/{conversation_id}/messages"
         };
-        const pageResponse = await fetch(
-          `${window.location.origin}${pagingTargetPath}?${query}`,
-          {
-            credentials: "include",
-            headers: pagingHeaders
-          }
-        );
-
-        if (!pageResponse.ok) {
-          const errorText = await pageResponse.text();
-          throw new Error(
-            `Conversation page fetch failed (${pageResponse.status}): ${errorText}`
-          );
-        }
-
-        return pageResponse.json();
+        return fetchConversationBatch(pagingTargetPath, pagingHeaders, beforeMessageId);
       },
       onProgress: ({ pagesFetched, messagesFetched }) => {
         if (isCurrent()) {
