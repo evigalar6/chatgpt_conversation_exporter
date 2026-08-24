@@ -83,11 +83,13 @@ It does not request permanent access to your browsing history or every website. 
 
 ## How extraction works
 
-The extension tries three sources in order:
+The extension checks three available sources:
 
 1. the conversation response available to the signed-in ChatGPT page;
 2. conversation data already present in the page state;
 3. visible message content in the page as a fallback.
+
+It compares the number of usable turns from every available source and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate.
 
 For branched chats, the `current_node` chain is followed so only the branch currently selected in ChatGPT is exported. Image-only message parts and internal or visually hidden messages are omitted.
 

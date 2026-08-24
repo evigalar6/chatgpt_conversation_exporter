@@ -178,7 +178,8 @@ function getCandidateMessageArrays(input) {
   }
 
   const mappingMessages = getSortedMappingMessages(input);
-  if (mappingMessages.length) {
+  const mappingPathIsIncomplete = Boolean(mappingPath[0]?.parent);
+  if ((!mappingPath.length || mappingPathIsIncomplete) && mappingMessages.length) {
     candidates.push(mappingMessages);
   }
 
@@ -229,14 +230,6 @@ function extractTurnsFromMessages(rawMessages) {
 }
 
 function extractTurns(parsedJson) {
-  const currentPath = getConversationPathFromMapping(parsedJson);
-  if (currentPath.length) {
-    const currentPathTurns = extractTurnsFromMessages(currentPath);
-    if (currentPathTurns.length) {
-      return currentPathTurns;
-    }
-  }
-
   const candidateArrays = getCandidateMessageArrays(parsedJson);
   let bestTurns = [];
   let bestScore = -1;

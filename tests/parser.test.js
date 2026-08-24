@@ -81,6 +81,64 @@ test("follows current_node and excludes alternate mapping branches", () => {
   );
 });
 
+test("prefers a complete linear payload over a paged mapping path", () => {
+  const messages = Array.from({ length: 40 }, (_, index) => ({
+    id: `message-${index}`,
+    role: index % 2 === 0 ? "user" : "assistant",
+    content: `Turn ${index + 1}`
+  }));
+  const mapping = {};
+
+  for (let index = 25; index < messages.length; index += 1) {
+    const message = messages[index];
+    mapping[message.id] = {
+      id: message.id,
+      parent: index === 25 ? "message-24" : `message-${index - 1}`,
+      message: {
+        author: { role: message.role },
+        content: { content_type: "text", parts: [message.content] }
+      }
+    };
+  }
+
+  const result = parse({
+    messages,
+    current_node: "message-39",
+    mapping
+  });
+
+  assert.equal(result.turns.length, 40);
+  assert.equal(result.turns[0].text, "Turn 1");
+  assert.equal(result.turns.at(-1).text, "Turn 40");
+});
+
+test("recovers older mapping nodes when the active path has a paging gap", () => {
+  const mapping = {};
+
+  for (let index = 0; index < 40; index += 1) {
+    const id = `message-${index}`;
+    mapping[id] = {
+      id,
+      parent:
+        index === 0 ? null : index === 25 ? "unloaded-page-boundary" : `message-${index - 1}`,
+      message: {
+        create_time: index,
+        author: { role: index % 2 === 0 ? "user" : "assistant" },
+        content: { content_type: "text", parts: [`Turn ${index + 1}`] }
+      }
+    };
+  }
+
+  const result = parse({
+    current_node: "message-39",
+    mapping
+  });
+
+  assert.equal(result.turns.length, 40);
+  assert.equal(result.turns[0].text, "Turn 1");
+  assert.equal(result.turns.at(-1).text, "Turn 40");
+});
+
 test("omits visually hidden messages and image-only parts", () => {
   const result = parse({
     messages: [

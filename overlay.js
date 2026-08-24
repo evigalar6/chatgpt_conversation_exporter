@@ -650,7 +650,7 @@
     return match ? decodeURIComponent(match[1]) : "";
   }
 
-  async function getAccessToken() {
+  async function getAuthContext() {
     const response = await fetch(`${window.location.origin}/api/auth/session`, {
       credentials: "include",
       headers: {
@@ -675,7 +675,14 @@
       throw new Error("Session access token not found.");
     }
 
-    return accessToken;
+    const accountId =
+      session?.account?.id ||
+      session?.accountId ||
+      session?.account_id ||
+      getCookieValue("_account") ||
+      "";
+
+    return { accessToken, accountId };
   }
 
   async function fetchConversationFromApi(conversationId) {
@@ -683,23 +690,29 @@
       throw new Error("Open a specific ChatGPT conversation first.");
     }
 
-    const accessToken = await getAccessToken();
+    const { accessToken, accountId } = await getAuthContext();
     const deviceId = getCookieValue("oai-did");
     const language = getCookieValue("oai-locale") || navigator.language || "en-US";
     const targetPath = `/backend-api/conversation/${conversationId}`;
+
+    const headers = {
+      accept: "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "oai-device-id": deviceId,
+      "oai-language": language,
+      "x-openai-target-path": targetPath,
+      "x-openai-target-route": "/backend-api/conversation/{conversation_id}"
+    };
+
+    if (accountId) {
+      headers["chatgpt-account-id"] = accountId;
+    }
 
     const response = await fetch(
       `${window.location.origin}${targetPath}`,
       {
         credentials: "include",
-        headers: {
-          accept: "application/json",
-          authorization: `Bearer ${accessToken}`,
-          "oai-device-id": deviceId,
-          "oai-language": language,
-          "x-openai-target-path": targetPath,
-          "x-openai-target-route": "/backend-api/conversation/{conversation_id}"
-        }
+        headers
       }
     );
 
@@ -752,19 +765,37 @@
     ];
 
     const errors = [];
-    for (const loadSource of sources) {
+    const candidates = [];
+    for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      const loadSource = sources[sourceIndex];
       try {
         const result = await loadSource();
-        return {
+        const parsed = parser.parseConversationJson(JSON.stringify(result.conversationJson));
+        candidates.push({
           ...result,
-          sourceErrors: errors
-        };
+          sourceIndex,
+          turnsCount: parsed.turns.length
+        });
       } catch (error) {
         errors.push(error?.message || String(error));
       }
     }
 
-    throw new Error(`Unable to load the conversation. ${errors.join(" ")}`.trim());
+    if (!candidates.length) {
+      throw new Error(`Unable to load the conversation. ${errors.join(" ")}`.trim());
+    }
+
+    candidates.sort(
+      (left, right) => right.turnsCount - left.turnsCount || left.sourceIndex - right.sourceIndex
+    );
+    const bestCandidate = candidates[0];
+
+    return {
+      conversationJson: bestCandidate.conversationJson,
+      source: bestCandidate.source,
+      sourceErrors: errors,
+      sourceCandidates: candidates.map(({ source, turnsCount }) => ({ source, turnsCount }))
+    };
   }
 
   function downloadText(text, filename) {
@@ -783,7 +814,8 @@
   }
 
   async function buildFromCurrentChat() {
-    const { conversationJson, source, sourceErrors } = await resolveConversationJson();
+    const { conversationJson, source, sourceErrors, sourceCandidates } =
+      await resolveConversationJson();
     const parsed = parser.parseConversationJson(
       JSON.stringify(conversationJson),
       assistantInput.value.trim() || "Assistant",
@@ -806,7 +838,8 @@
         messageCount,
         turnsCount: parsed.turns.length,
         currentNode: conversationJson?.current_node || "n/a",
-        sourceErrors
+        sourceErrors,
+        sourceCandidates
       }
     };
   }
@@ -834,6 +867,9 @@
         `Mapping nodes: ${debug.mappingCount}`,
         `Messages array length: ${debug.messageCount}`,
         `Current node: ${debug.currentNode}`,
+        `Candidates: ${debug.sourceCandidates
+          .map((candidate) => `${candidate.source}=${candidate.turnsCount}`)
+          .join(" | ")}`,
         `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
       setStatus(`Preview updated from ${source}.`);
@@ -854,6 +890,9 @@
         `Mapping nodes: ${debug.mappingCount}`,
         `Messages array length: ${debug.messageCount}`,
         `Current node: ${debug.currentNode}`,
+        `Candidates: ${debug.sourceCandidates
+          .map((candidate) => `${candidate.source}=${candidate.turnsCount}`)
+          .join(" | ")}`,
         `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
       downloadText(formattedText, parsedJson?.title || getConversationTitle());
