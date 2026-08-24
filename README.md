@@ -92,6 +92,8 @@ The extension checks three available sources:
 
 The primary source is loaded page by page until ChatGPT returns no older messages. The exporter deduplicates overlapping page boundaries, compares the number of usable turns from every available source, and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate and the number of API pages loaded.
 
+When you navigate to another conversation in the same ChatGPT tab, the exporter clears names, format, preview, and diagnostics. Results from an older in-progress export are ignored if the conversation changes before it finishes.
+
 For branched chats, the `current_node` chain is followed so only the branch currently selected in ChatGPT is exported. Image-only message parts and internal or visually hidden messages are omitted.
 
 ## Troubleshooting

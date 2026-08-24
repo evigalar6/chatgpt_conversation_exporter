@@ -2,6 +2,7 @@
   const overlayId = "convo-exporter-overlay";
   const existing = document.getElementById(overlayId);
   if (existing) {
+    existing.dispatchEvent(new Event("convo-exporter:open"));
     existing.style.display = "flex";
     existing.querySelector("#ce-close")?.focus();
     return;
@@ -193,7 +194,9 @@
   const previewOutput = root.querySelector("#ce-preview-output");
   const statusOutput = root.querySelector("#ce-status");
   const debugOutput = root.querySelector("#ce-debug");
-  let activeConversationId = window.location.pathname;
+  let activeConversationId = getConversationId();
+  let activeOperationId = 0;
+  root.dataset.conversationId = activeConversationId;
 
   function setStatus(message, isError = false) {
     statusOutput.textContent = message;
@@ -210,9 +213,33 @@
   }
 
   function resetOverlayState(message = "Conversation changed. Preview cleared.") {
+    activeOperationId += 1;
+    assistantInput.value = "";
+    userInput.value = "";
+    const markdownFormat = root.querySelector('#ce-format-md');
+    if (markdownFormat) {
+      markdownFormat.checked = true;
+    }
     previewOutput.value = "";
     setStatus(message);
     debugOutput.textContent = "Waiting for preview.";
+  }
+
+  function startOperation(statusMessage) {
+    const operation = {
+      id: ++activeOperationId,
+      conversationId: getConversationId()
+    };
+    setStatus(statusMessage);
+    return operation;
+  }
+
+  function isOperationCurrent(operation) {
+    return (
+      operation.id === activeOperationId &&
+      operation.conversationId === activeConversationId &&
+      operation.conversationId === getConversationId()
+    );
   }
 
   function setDebugInfo(lines) {
@@ -616,12 +643,13 @@
   }
 
   function handlePossibleNavigation() {
-    const nextConversationId = window.location.pathname;
+    const nextConversationId = getConversationId();
     if (nextConversationId === activeConversationId) {
       return;
     }
 
     activeConversationId = nextConversationId;
+    root.dataset.conversationId = activeConversationId;
     resetOverlayState("Conversation changed. Preview cleared.");
   }
 
@@ -646,6 +674,14 @@
     }
 
     window.addEventListener("convo-exporter:navigation", handlePossibleNavigation);
+    root.addEventListener("convo-exporter:open", handlePossibleNavigation);
+
+    const navigationPoll = window.setInterval(handlePossibleNavigation, 500);
+    window.addEventListener(
+      "pagehide",
+      () => window.clearInterval(navigationPoll),
+      { once: true }
+    );
   }
 
   function getCookieValue(name) {
@@ -689,7 +725,7 @@
     return { accessToken, accountId };
   }
 
-  async function fetchConversationFromApi(conversationId) {
+  async function fetchConversationFromApi(conversationId, isCurrent = () => true) {
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
     }
@@ -759,9 +795,11 @@
         return pageResponse.json();
       },
       onProgress: ({ pagesFetched, messagesFetched }) => {
-        setStatus(
-          `Loading full conversation... ${messagesFetched} messages across ${pagesFetched + 1} batches.`
-        );
+        if (isCurrent()) {
+          setStatus(
+            `Loading full conversation... ${messagesFetched} messages across ${pagesFetched + 1} batches.`
+          );
+        }
       }
     });
 
@@ -771,7 +809,7 @@
     };
   }
 
-  async function resolveConversationJson() {
+  async function resolveConversationJson(isCurrent = () => true) {
     const conversationId = getConversationId();
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
@@ -779,7 +817,7 @@
 
     const sources = [
       async () => ({
-        conversationJson: await fetchConversationFromApi(conversationId),
+        conversationJson: await fetchConversationFromApi(conversationId, isCurrent),
         source: "backend-api"
       }),
       async () => {
@@ -860,9 +898,9 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function buildFromCurrentChat() {
+  async function buildFromCurrentChat(isCurrent = () => true) {
     const { conversationJson, source, sourceErrors, sourceCandidates } =
-      await resolveConversationJson();
+      await resolveConversationJson(isCurrent);
     const parsed = parser.parseConversationJson(
       JSON.stringify(conversationJson),
       assistantInput.value.trim() || "Assistant",
@@ -905,9 +943,14 @@
   installNavigationTracking();
 
   root.querySelector("#ce-preview").addEventListener("click", async () => {
+    const operation = startOperation("Loading preview...");
     try {
-      setStatus("Loading preview...");
-      const { formattedText, source, debug } = await buildFromCurrentChat();
+      const { formattedText, source, debug } = await buildFromCurrentChat(() =>
+        isOperationCurrent(operation)
+      );
+      if (!isOperationCurrent(operation)) {
+        return;
+      }
       previewOutput.value = formattedText;
       setDebugInfo([
         `Debug source: ${debug.source}`,
@@ -923,15 +966,23 @@
       ]);
       setStatus(`Preview updated from ${source}.`);
     } catch (error) {
+      if (!isOperationCurrent(operation)) {
+        return;
+      }
       setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);
       setStatus(error.message || "Failed to preview the current chat.", true);
     }
   });
 
   root.querySelector("#ce-export").addEventListener("click", async () => {
+    const operation = startOperation("Exporting current chat...");
     try {
-      setStatus("Exporting current chat...");
-      const { formattedText, parsedJson, source, debug } = await buildFromCurrentChat();
+      const { formattedText, parsedJson, source, debug } = await buildFromCurrentChat(() =>
+        isOperationCurrent(operation)
+      );
+      if (!isOperationCurrent(operation)) {
+        return;
+      }
       previewOutput.value = formattedText;
       setDebugInfo([
         `Debug source: ${debug.source}`,
@@ -948,6 +999,9 @@
       downloadText(formattedText, parsedJson?.title || getConversationTitle());
       setStatus(`Export started from ${source}.`);
     } catch (error) {
+      if (!isOperationCurrent(operation)) {
+        return;
+      }
       setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);
       setStatus(error.message || "Failed to export the current chat.", true);
     }
