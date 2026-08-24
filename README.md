@@ -10,6 +10,7 @@
 - Keeps user and assistant messages in their on-screen order.
 - Preserves common formatting such as paragraphs, lists, links, code blocks, quotes, and tables.
 - Lets you rename the `User` and `Assistant` speakers before exporting.
+- Adds the per-message `model_slug` to the assistant name when ChatGPT provides it.
 - Provides a preview before saving an `.md` or `.txt` file.
 - Runs locally in your browser and sends nothing to a third-party server.
 
@@ -85,11 +86,11 @@ It does not request permanent access to your browsing history or every website. 
 
 The extension checks three available sources:
 
-1. the conversation response available to the signed-in ChatGPT page;
+1. the paginated conversation responses available to the signed-in ChatGPT page;
 2. conversation data already present in the page state;
 3. visible message content in the page as a fallback.
 
-It compares the number of usable turns from every available source and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate.
+The primary source is loaded page by page until ChatGPT returns no older messages. The exporter deduplicates overlapping page boundaries, compares the number of usable turns from every available source, and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate and the number of API pages loaded.
 
 For branched chats, the `current_node` chain is followed so only the branch currently selected in ChatGPT is exported. Image-only message parts and internal or visually hidden messages are omitted.
 
@@ -127,6 +128,7 @@ Key files:
 - `manifest.json` — Manifest V3 metadata and permissions
 - `popup.html`, `popup.css`, `popup.js` — extension popup
 - `overlay.js` — in-page exporter and ChatGPT extraction fallbacks
+- `api.js` — authenticated conversation pagination and page merging
 - `parser.js` — conversation-shape parsing and output formatting
 - `tests/` — dependency-free Node.js regression tests
 

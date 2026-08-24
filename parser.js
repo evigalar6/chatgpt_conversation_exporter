@@ -113,6 +113,19 @@ function getMessageText(candidate) {
   return normalizeText(text);
 }
 
+function getModelSlug(candidate) {
+  const metadata = candidate?.metadata ?? candidate?.message?.metadata ?? {};
+  const modelSlug =
+    metadata.model_slug ??
+    metadata.resolved_model_slug ??
+    metadata.default_model_slug ??
+    candidate?.model_slug ??
+    candidate?.message?.model_slug ??
+    "";
+
+  return typeof modelSlug === "string" ? normalizeText(modelSlug) : "";
+}
+
 function getConversationPathFromMapping(input) {
   if (!input?.mapping || typeof input.mapping !== "object") {
     return [];
@@ -217,7 +230,7 @@ function extractTurnsFromMessages(rawMessages) {
     }
 
     if (role.includes("assistant")) {
-      turns.push({ role: "assistant", text });
+      turns.push({ role: "assistant", text, modelSlug: getModelSlug(rawMessage) });
       continue;
     }
 
@@ -253,7 +266,12 @@ function formatTurns(turns, assistantName, userName, format = "md") {
 
   return turns
     .map((turn) => {
-      const speaker = turn.role === "assistant" ? assistantName : userName;
+      const speaker =
+        turn.role === "assistant" && turn.modelSlug
+          ? `${assistantName} (${turn.modelSlug})`
+          : turn.role === "assistant"
+            ? assistantName
+            : userName;
       const heading = isPlainText ? `${speaker}:` : `**${speaker}:**`;
       return `${heading}\n${turn.text}`;
     })

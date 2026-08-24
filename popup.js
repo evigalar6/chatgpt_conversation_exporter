@@ -48,7 +48,7 @@ async function openOverlay() {
     await chrome.scripting.executeScript({
       target: { tabId: activeTab.id },
       world: "MAIN",
-      files: ["parser.js", "overlay.js"]
+      files: ["parser.js", "api.js", "overlay.js"]
     });
 
     setStatus("Exporter opened on the current page.");

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Conversation Exporter",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Export the current ChatGPT conversation to Markdown or plain text.",
   "minimum_chrome_version": "95",
   "icons": {

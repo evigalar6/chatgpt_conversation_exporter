@@ -1,10 +1,10 @@
 {
   "name": "chatgpt-conversation-exporter",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Development checks for the Conversation Exporter Chrome extension.",
   "scripts": {
-    "check": "node --check parser.js && node --check overlay.js && node --check popup.js && node --test",
+    "check": "node --check parser.js && node --check api.js && node --check overlay.js && node --check popup.js && node --test",
     "test": "node --test"
   },
   "engines": {

@@ -11,6 +11,10 @@
   if (!parser) {
     throw new Error("Conversation Exporter parser failed to load.");
   }
+  const conversationApi = globalThis.__conversationExporterApi;
+  if (!conversationApi) {
+    throw new Error("Conversation Exporter pagination helper failed to load.");
+  }
 
   const style = document.createElement("style");
   style.textContent = `
@@ -709,7 +713,7 @@
     }
 
     const response = await fetch(
-      `${window.location.origin}${targetPath}`,
+      `${window.location.origin}${targetPath}?include_has_versions=true&num_turns=100`,
       {
         credentials: "include",
         headers
@@ -721,7 +725,50 @@
       throw new Error(`Chat fetch failed (${response.status}): ${errorText}`);
     }
 
-    return response.json();
+    const initialConversation = await response.json();
+    const pagingTargetPath = `/backend-api/conversations/${conversationId}/messages`;
+
+    const result = await conversationApi.collectConversationPages({
+      initialConversation,
+      fetchPage: async (beforeMessageId) => {
+        const query = new URLSearchParams({
+          before: beforeMessageId,
+          include_has_versions: "true",
+          num_turns: "100"
+        });
+        const pagingHeaders = {
+          ...headers,
+          "x-openai-target-path": pagingTargetPath,
+          "x-openai-target-route": "/backend-api/conversations/{conversation_id}/messages"
+        };
+        const pageResponse = await fetch(
+          `${window.location.origin}${pagingTargetPath}?${query}`,
+          {
+            credentials: "include",
+            headers: pagingHeaders
+          }
+        );
+
+        if (!pageResponse.ok) {
+          const errorText = await pageResponse.text();
+          throw new Error(
+            `Conversation page fetch failed (${pageResponse.status}): ${errorText}`
+          );
+        }
+
+        return pageResponse.json();
+      },
+      onProgress: ({ pagesFetched, messagesFetched }) => {
+        setStatus(
+          `Loading full conversation... ${messagesFetched} messages across ${pagesFetched + 1} batches.`
+        );
+      }
+    });
+
+    return {
+      ...result.conversationJson,
+      __exporterPaginationPages: result.pagesFetched
+    };
   }
 
   async function resolveConversationJson() {
@@ -836,6 +883,7 @@
         source,
         mappingCount,
         messageCount,
+        paginationPages: conversationJson?.__exporterPaginationPages ?? 0,
         turnsCount: parsed.turns.length,
         currentNode: conversationJson?.current_node || "n/a",
         sourceErrors,
@@ -866,6 +914,7 @@
         `Turns exported: ${debug.turnsCount}`,
         `Mapping nodes: ${debug.mappingCount}`,
         `Messages array length: ${debug.messageCount}`,
+        `Pagination pages: ${debug.paginationPages}`,
         `Current node: ${debug.currentNode}`,
         `Candidates: ${debug.sourceCandidates
           .map((candidate) => `${candidate.source}=${candidate.turnsCount}`)
@@ -889,6 +938,7 @@
         `Turns exported: ${debug.turnsCount}`,
         `Mapping nodes: ${debug.mappingCount}`,
         `Messages array length: ${debug.messageCount}`,
+        `Pagination pages: ${debug.paginationPages}`,
         `Current node: ${debug.currentNode}`,
         `Candidates: ${debug.sourceCandidates
           .map((candidate) => `${candidate.source}=${candidate.turnsCount}`)

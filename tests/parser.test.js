@@ -188,6 +188,28 @@ test("formats Markdown and plain text differently", () => {
   );
 });
 
+test("appends the per-message model slug to assistant names when available", () => {
+  const result = parse({
+    messages: [
+      { role: "user", content: "Hello" },
+      {
+        author: { role: "assistant" },
+        content: { content_type: "text", parts: ["Hi"] },
+        metadata: { model_slug: "gpt-5-6-thinking" }
+      },
+      {
+        author: { role: "assistant" },
+        content: { content_type: "text", parts: ["No model metadata"] }
+      }
+    ]
+  }, "Kai", "Val");
+
+  assert.equal(
+    result.formattedText,
+    "**Val:**\nHello\n\n***\n\n**Kai (gpt-5-6-thinking):**\nHi\n\n***\n\n**Kai:**\nNo model metadata"
+  );
+});
+
 test("sanitizes filenames and rejects invalid input", () => {
   assert.equal(parser.sanitizeFilenamePart('  A/B: C*?  ', "fallback"), "A B C");
   assert.equal(parser.sanitizeFilenamePart("", "fallback"), "fallback");
