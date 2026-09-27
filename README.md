@@ -10,7 +10,7 @@
 - Keeps user and assistant messages in their on-screen order.
 - Preserves common formatting such as paragraphs, lists, links, code blocks, quotes, and tables.
 - Lets you rename the `User` and `Assistant` speakers before exporting.
-- Adds the per-message `model_slug` to the assistant name when ChatGPT provides it.
+- Adds each assistant message's local creation time and, when available, its per-message `model_slug` to the assistant name.
 - Provides a preview before saving an `.md` or `.txt` file.
 - Runs locally in your browser and sends nothing to a third-party server.
 
@@ -57,7 +57,7 @@ Hello!
 
 ***
 
-**Assistant:**
+**Assistant (Monday, 28 September, 14:05, gpt-5):**
 Hi — how can I help?
 ```
 
@@ -69,7 +69,7 @@ Hello!
 
 --------------------
 
-Assistant:
+Assistant (Monday, 28 September, 14:05, gpt-5):
 Hi — how can I help?
 ```
 

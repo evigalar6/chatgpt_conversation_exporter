@@ -210,6 +210,64 @@ test("appends the per-message model slug to assistant names when available", () 
   );
 });
 
+test("places the assistant creation timestamp before the model slug", () => {
+  const localCreateTime = new Date(2026, 8, 28, 14, 5).getTime() / 1000;
+  const input = {
+    messages: [
+      { role: "user", content: "Hello", create_time: localCreateTime - 60 },
+      {
+        author: { role: "assistant" },
+        content: { content_type: "text", parts: ["Hi"] },
+        create_time: localCreateTime,
+        metadata: { model_slug: "gpt-5-6-thinking" }
+      }
+    ]
+  };
+
+  assert.equal(
+    parse(input, "Kai", "Val", "md").formattedText,
+    "**Val:**\nHello\n\n***\n\n**Kai (Monday, 28 September, 14:05, gpt-5-6-thinking):**\nHi"
+  );
+  assert.equal(
+    parse(input, "Kai", "Val", "txt").formattedText,
+    "Val:\nHello\n\n--------------------\n\nKai (Monday, 28 September, 14:05, gpt-5-6-thinking):\nHi"
+  );
+});
+
+test("formats nested millisecond timestamps and keeps safe fallbacks", () => {
+  const localCreateTime = new Date(2026, 8, 28, 0, 7).getTime();
+  const result = parse({
+    current_node: "assistant-invalid-time",
+    mapping: {
+      root: { id: "root", parent: null, message: null },
+      "assistant-with-time": {
+        id: "assistant-with-time",
+        parent: "root",
+        message: {
+          create_time: localCreateTime,
+          author: { role: "assistant" },
+          content: { content_type: "text", parts: ["Timestamp only"] }
+        }
+      },
+      "assistant-invalid-time": {
+        id: "assistant-invalid-time",
+        parent: "assistant-with-time",
+        message: {
+          create_time: "not-a-timestamp",
+          author: { role: "assistant" },
+          content: { content_type: "text", parts: ["Model only"] },
+          metadata: { model_slug: "gpt-5" }
+        }
+      }
+    }
+  });
+
+  assert.equal(
+    result.formattedText,
+    "**Assistant (Monday, 28 September, 00:07):**\nTimestamp only\n\n***\n\n**Assistant (gpt-5):**\nModel only"
+  );
+});
+
 test("sanitizes filenames and rejects invalid input", () => {
   assert.equal(parser.sanitizeFilenamePart('  A/B: C*?  ', "fallback"), "A B C");
   assert.equal(parser.sanitizeFilenamePart("", "fallback"), "fallback");

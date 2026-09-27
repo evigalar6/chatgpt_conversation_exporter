@@ -126,6 +126,48 @@ function getModelSlug(candidate) {
   return typeof modelSlug === "string" ? normalizeText(modelSlug) : "";
 }
 
+function getCreateTime(candidate) {
+  const createTime = candidate?.create_time ?? candidate?.message?.create_time;
+
+  if (createTime === null || createTime === undefined || createTime === "") {
+    return null;
+  }
+
+  const numericCreateTime = Number(createTime);
+  return Number.isFinite(numericCreateTime) ? numericCreateTime : null;
+}
+
+function formatCreateTime(createTime) {
+  if (!Number.isFinite(createTime)) {
+    return "";
+  }
+
+  const milliseconds = Math.abs(createTime) >= 100_000_000_000
+    ? createTime
+    : createTime * 1000;
+  const date = new Date(milliseconds);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+
+  if (!values.weekday || !values.day || !values.month || !values.hour || !values.minute) {
+    return "";
+  }
+
+  return `${values.weekday}, ${values.day} ${values.month}, ${values.hour}:${values.minute}`;
+}
+
 function getConversationPathFromMapping(input) {
   if (!input?.mapping || typeof input.mapping !== "object") {
     return [];
@@ -230,7 +272,12 @@ function extractTurnsFromMessages(rawMessages) {
     }
 
     if (role.includes("assistant")) {
-      turns.push({ role: "assistant", text, modelSlug: getModelSlug(rawMessage) });
+      turns.push({
+        role: "assistant",
+        text,
+        createTime: getCreateTime(rawMessage),
+        modelSlug: getModelSlug(rawMessage)
+      });
       continue;
     }
 
@@ -266,12 +313,11 @@ function formatTurns(turns, assistantName, userName, format = "md") {
 
   return turns
     .map((turn) => {
-      const speaker =
-        turn.role === "assistant" && turn.modelSlug
-          ? `${assistantName} (${turn.modelSlug})`
-          : turn.role === "assistant"
-            ? assistantName
-            : userName;
+      const timestamp = formatCreateTime(turn.createTime);
+      const assistantDetails = [timestamp, turn.modelSlug].filter(Boolean);
+      const speaker = turn.role === "assistant"
+        ? `${assistantName}${assistantDetails.length ? ` (${assistantDetails.join(", ")})` : ""}`
+        : userName;
       const heading = isPlainText ? `${speaker}:` : `**${speaker}:**`;
       return `${heading}\n${turn.text}`;
     })
