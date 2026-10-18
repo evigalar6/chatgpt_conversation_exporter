@@ -49,6 +49,8 @@ The same unpacked-extension flow also works in Chromium-based Microsoft Edge at 
    - select **Export Current Chat** to download it.
 4. Close the panel with **Close** or the <kbd>Esc</kbd> key.
 
+For long conversations, the preview shows at most 200,000 characters and clearly marks a shortened preview. **Export Current Chat** always downloads the complete text. Closing the panel cancels an in-progress load and clears the preview from memory.
+
 ### Markdown output
 
 ```md
@@ -84,13 +86,15 @@ It does not request permanent access to your browsing history or every website. 
 
 ## How extraction works
 
-The extension checks three available sources:
+The extension tries these sources in order, stopping after a successful extraction:
 
 1. the paginated conversation responses available to the signed-in ChatGPT page;
 2. conversation data already present in the page state;
 3. visible message content in the page as a fallback.
 
-The primary source is loaded page by page until ChatGPT returns no older messages. Each request asks for up to 1000 turns; if ChatGPT rejects that batch size with HTTP 400, 413, or 422, the current load retries with 100 turns. A 429 response is not retried this way. The exporter deduplicates overlapping page boundaries, compares the number of usable turns from every available source, and exports the most complete result instead of trusting the first successful response. The **Diagnostics** section shows the turn count for each candidate and the number of API pages loaded.
+The primary source is loaded page by page until ChatGPT returns no older messages. Each request asks for up to 1000 turns; if ChatGPT rejects that batch size with HTTP 400, 413, or 422, the current load retries with 100 turns. A 429 response is not retried this way. The exporter deduplicates overlapping page boundaries and rejects unexpected page shapes rather than silently treating them as the end of a chat. When the full API load succeeds, it skips the potentially expensive page-state and DOM searches. The **Diagnostics** section shows the selected source, turn count, fallback errors, and number of API pages loaded.
+
+Message extraction and formatting run in small batches so the page can respond between batches. The date formatter is reused, and the extension avoids JSON copies of conversation objects. The panel uses an opaque background without backdrop blur, leaves the site's history methods intact, and pauses its lightweight URL check while closed or in a background tab.
 
 When you navigate to another conversation in the same ChatGPT tab, the exporter clears names, format, preview, and diagnostics. Results from an older in-progress export are ignored if the conversation changes before it finishes.
 

@@ -105,14 +105,15 @@
     if (Array.isArray(page?.data?.messages)) {
       return page.data.messages;
     }
-    return [];
+    throw new Error("Unrecognized conversation page; unable to confirm a complete export.");
   }
 
   async function collectConversationPages({
     initialConversation,
     fetchPage,
     maxPages = 2000,
-    onProgress
+    onProgress,
+    isCurrent = () => true
   }) {
     const initialMessages = getInitialMessages(initialConversation);
     const messageArrays = [initialMessages];
@@ -123,8 +124,14 @@
     let complete = !cursor;
 
     while (cursor && pagesFetched < maxPages && !seenCursors.has(cursor)) {
+      if (!isCurrent()) {
+        throw new Error("Conversation export cancelled.");
+      }
       seenCursors.add(cursor);
       const page = await fetchPage(cursor);
+      if (!isCurrent()) {
+        throw new Error("Conversation export cancelled.");
+      }
       pagesFetched += 1;
       const pageMessages = getPageMessages(page);
 

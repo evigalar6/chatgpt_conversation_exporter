@@ -74,3 +74,31 @@ test("rejects a paging loop instead of exporting a silent partial result", async
     /safety limit/
   );
 });
+
+test("rejects an unexpected page instead of treating it as the end of a complete conversation", async () => {
+  await assert.rejects(
+    api.collectConversationPages({
+      initialConversation: { messages: [message("m2", 2)] },
+      fetchPage: async () => ({ unexpected: true })
+    }),
+    /unable to confirm a complete export/
+  );
+});
+
+test("stops pagination when the overlay closes or the conversation changes", async () => {
+  let current = true;
+  let requests = 0;
+  await assert.rejects(
+    api.collectConversationPages({
+      initialConversation: { messages: [message("m2", 2)] },
+      isCurrent: () => current,
+      fetchPage: async () => {
+        requests += 1;
+        current = false;
+        return { messages: [message("m1", 1)] };
+      }
+    }),
+    /cancelled/
+  );
+  assert.equal(requests, 1);
+});

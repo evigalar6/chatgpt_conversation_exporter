@@ -8,7 +8,7 @@ const parserSource = fs.readFileSync(
   path.join(__dirname, "..", "parser.js"),
   "utf8"
 );
-const context = {};
+const context = { setTimeout };
 vm.createContext(context);
 vm.runInContext(parserSource, context, { filename: "parser.js" });
 const parser = context.__conversationExporterParser;
@@ -276,4 +276,87 @@ test("sanitizes filenames and rejects invalid input", () => {
     () => parser.parseConversationJson('{"messages":[]}'),
     /No user or assistant messages/
   );
+});
+
+test("accepts an existing object without copying the conversation through JSON", () => {
+  const input = {
+    messages: [{ role: "assistant", content: "Object input" }],
+    toJSON() { throw new Error("The conversation must not be serialized"); }
+  };
+  assert.equal(parser.parseConversationJson(input).formattedText, "**Assistant:**\nObject input");
+});
+
+test("does not sort unused mapping branches when the active path is complete", () => {
+  const input = {
+    current_node: "active",
+    mapping: {
+      active: {
+        parent: null,
+        message: { author: { role: "assistant" }, content: { content_type: "text", parts: ["Active branch"] } }
+      },
+      alternate: {
+        message: {
+          author: { role: "assistant" }, content: { content_type: "text", parts: ["Alternate branch"] },
+          get create_time() { throw new Error("Do not inspect unused branches"); }
+        }
+      }
+    }
+  };
+  assert.equal(parser.parseConversationJson(input).formattedText, "**Assistant:**\nActive branch");
+});
+
+test("asynchronous extraction and formatting preserve output while yielding to the event loop", async () => {
+  const input = {
+    messages: Array.from({ length: 1200 }, (_, index) => ({
+      role: index % 2 ? "assistant" : "user",
+      content: `Turn ${index}`,
+      create_time: 1801120000 + index,
+      metadata: { model_slug: "gpt-5" }
+    }))
+  };
+  let timerRan = false;
+  setTimeout(() => { timerRan = true; }, 0);
+  const turns = await parser.extractTurnsAsync(input);
+  assert.equal(timerRan, true);
+  for (const format of ["md", "txt"]) {
+    const result = await parser.formatTurnsAsync(turns, "Ліра", "Val", format);
+    assert.equal(result, parse(input, "Ліра", "Val", format).formattedText);
+  }
+});
+
+test("large extraction and formatting stop when the operation is cancelled", async () => {
+  const input = { messages: Array.from({ length: 1000 }, () => ({ role: "user", content: "Hello" })) };
+  let checks = 0;
+  await assert.rejects(parser.extractTurnsAsync(input, () => ++checks < 3), /cancelled/);
+  const turns = await parser.extractTurnsAsync(input);
+  checks = 0;
+  await assert.rejects(
+    parser.formatTurnsAsync(turns, "Assistant", "User", "md", () => ++checks < 3),
+    /cancelled/
+  );
+});
+
+test("extraction does not format dates and repeated formatting reuses one date formatter", async () => {
+  let formatterCount = 0;
+  const isolatedContext = {
+    setTimeout,
+    Intl: {
+      DateTimeFormat: function (...args) {
+        formatterCount += 1;
+        return new Intl.DateTimeFormat(...args);
+      }
+    }
+  };
+  vm.createContext(isolatedContext);
+  vm.runInContext(parserSource, isolatedContext);
+  const isolatedParser = isolatedContext.__conversationExporterParser;
+  const turns = await isolatedParser.extractTurnsAsync({
+    messages: Array.from({ length: 1000 }, (_, index) => ({
+      role: "assistant", content: `Answer ${index}`, create_time: 1801120000 + index
+    }))
+  });
+  assert.equal(formatterCount, 0);
+  await isolatedParser.formatTurnsAsync(turns);
+  await isolatedParser.formatTurnsAsync(turns, "Bot", "User", "txt");
+  assert.equal(formatterCount, 1);
 });

@@ -3,10 +3,11 @@
   const preferredBackendPageTurns = 1000;
   const fallbackBackendPageTurns = 100;
   const pageSizeRejectionStatuses = new Set([400, 413, 422]);
+  const previewCharacterLimit = 200000;
   const existing = document.getElementById(overlayId);
   if (existing) {
-    existing.dispatchEvent(new Event("convo-exporter:open"));
     existing.style.display = "flex";
+    existing.dispatchEvent(new Event("convo-exporter:open"));
     existing.querySelector("#ce-close")?.focus();
     return;
   }
@@ -28,6 +29,7 @@
       right: 16px;
       width: min(420px, calc(100vw - 32px));
       max-height: calc(100vh - 32px);
+      overflow-y: auto;
       z-index: 2147483647;
       display: flex;
       flex-direction: column;
@@ -35,14 +37,11 @@
       padding: 16px;
       border: 1px solid rgba(144, 180, 230, 0.65);
       border-radius: 18px;
-      background:
-        radial-gradient(circle at 18px 20px, rgba(255,255,255,0.78) 0 1.2px, transparent 1.4px),
-        radial-gradient(circle at 88px 44px, rgba(232,244,255,0.82) 0 1.6px, transparent 1.8px),
-        linear-gradient(180deg, rgba(13, 29, 60, 0.96) 0%, rgba(26, 52, 96, 0.96) 100%);
+      background: #162b4c;
       color: #ecf6ff;
       box-shadow: 0 20px 60px rgba(5, 13, 30, 0.45);
       font: 14px/1.4 Georgia, "Times New Roman", serif;
-      backdrop-filter: blur(12px);
+      contain: layout style;
     }
     #${overlayId} * { box-sizing: border-box; }
     #${overlayId} h2 { margin: 0; font-size: 20px; }
@@ -197,9 +196,19 @@
   const previewOutput = root.querySelector("#ce-preview-output");
   const statusOutput = root.querySelector("#ce-status");
   const debugOutput = root.querySelector("#ce-debug");
+  const actionButtons = [root.querySelector("#ce-preview"), root.querySelector("#ce-export")];
   let activeConversationId = getConversationId();
   let activeOperationId = 0;
+  let activeController = null;
+  let navigationPoll = null;
   root.dataset.conversationId = activeConversationId;
+
+  function cancelOperation() {
+    activeOperationId += 1;
+    activeController?.abort();
+    activeController = null;
+    actionButtons.forEach((button) => { button.disabled = false; });
+  }
 
   function setStatus(message, isError = false) {
     statusOutput.textContent = message;
@@ -216,7 +225,7 @@
   }
 
   function resetOverlayState(message = "Conversation changed. Preview cleared.") {
-    activeOperationId += 1;
+    cancelOperation();
     assistantInput.value = "";
     userInput.value = "";
     const markdownFormat = root.querySelector('#ce-format-md');
@@ -229,16 +238,43 @@
   }
 
   function startOperation(statusMessage) {
+    handlePossibleNavigation();
+    cancelOperation();
+    activeController = new AbortController();
     const operation = {
-      id: ++activeOperationId,
-      conversationId: getConversationId()
+      id: activeOperationId,
+      conversationId: getConversationId(),
+      signal: activeController.signal
     };
     setStatus(statusMessage);
+    actionButtons.forEach((button) => { button.disabled = true; });
     return operation;
+  }
+
+  function finishOperation(operation) {
+    if (isOperationCurrent(operation)) {
+      activeController = null;
+      actionButtons.forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  function updatePreview(text) {
+    const truncated = text.length > previewCharacterLimit;
+    previewOutput.value = truncated
+      ? `${text.slice(0, previewCharacterLimit)}\n\n[Preview shortened. Export downloads the complete conversation.]`
+      : text;
+    return truncated ? " Preview shortened; export includes all messages." : "";
+  }
+
+  function yieldToBrowser() {
+    return globalThis.scheduler?.yield
+      ? globalThis.scheduler.yield()
+      : new Promise((resolve) => setTimeout(resolve, 0));
   }
 
   function isOperationCurrent(operation) {
     return (
+      !operation.signal.aborted &&
       operation.id === activeOperationId &&
       operation.conversationId === activeConversationId &&
       operation.conversationId === getConversationId()
@@ -263,18 +299,25 @@
     );
   }
 
-  function walkForConversation(rootValue, conversationId, maxNodes = 25000) {
+  async function walkForConversation(rootValue, conversationId, maxNodes = 25000, isCurrent = () => true) {
     const seen = new WeakSet();
     const stack = [rootValue];
     let visited = 0;
+    let steps = 0;
 
     while (stack.length && visited < maxNodes) {
+      if (!isCurrent()) {
+        throw new Error("Conversation export cancelled.");
+      }
+      if (++steps % 200 === 0) {
+        await yieldToBrowser();
+      }
       const current = stack.pop();
       if (!current || typeof current !== "object") {
         continue;
       }
 
-      if (seen.has(current)) {
+      if (seen.has(current) || current === window || current instanceof Node) {
         continue;
       }
 
@@ -286,16 +329,19 @@
       }
 
       if (Array.isArray(current)) {
-        for (let index = current.length - 1; index >= 0; index -= 1) {
-          stack.push(current[index]);
+        for (let index = Math.min(current.length, maxNodes - visited) - 1; index >= 0; index -= 1) {
+          const value = Object.getOwnPropertyDescriptor(current, index)?.value;
+          if (value && typeof value === "object") {
+            stack.push(value);
+          }
         }
         continue;
       }
 
-      for (const key of Object.keys(current)) {
+      for (const key of Object.keys(current).slice(0, maxNodes - visited)) {
         let value;
         try {
-          value = current[key];
+          value = Object.getOwnPropertyDescriptor(current, key)?.value;
         } catch (_error) {
           continue;
         }
@@ -330,18 +376,18 @@
     return candidates;
   }
 
-  function tryParseCandidateText(text, conversationId) {
+  async function tryParseCandidateText(text, conversationId, isCurrent) {
     try {
       const parsed = JSON.parse(text);
-      return walkForConversation(parsed, conversationId, 12000);
+      return await walkForConversation(parsed, conversationId, 12000, isCurrent);
     } catch (_error) {
       return null;
     }
   }
 
-  function findConversationInScripts(conversationId) {
+  async function findConversationInScripts(conversationId, isCurrent) {
     for (const text of getInlineScriptCandidates()) {
-      const match = tryParseCandidateText(text, conversationId);
+      const match = await tryParseCandidateText(text, conversationId, isCurrent);
       if (match) {
         return match;
       }
@@ -350,7 +396,7 @@
     return null;
   }
 
-  function findConversationInStorage(storage, conversationId) {
+  async function findConversationInStorage(storage, conversationId, isCurrent) {
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
       const value = storage.getItem(key);
@@ -366,7 +412,7 @@
         continue;
       }
 
-      const match = tryParseCandidateText(value, conversationId);
+      const match = await tryParseCandidateText(value, conversationId, isCurrent);
       if (match) {
         return match;
       }
@@ -375,7 +421,7 @@
     return null;
   }
 
-  function findConversationInWindow(conversationId) {
+  async function findConversationInWindow(conversationId, isCurrent) {
     const priorityProps = [
       "__NEXT_DATA__",
       "__NEXT_ROUTER_STATE_TREE__",
@@ -390,12 +436,12 @@
     for (const prop of priorityProps) {
       let value;
       try {
-        value = window[prop];
+        value = Object.getOwnPropertyDescriptor(window, prop)?.value;
       } catch (_error) {
         continue;
       }
 
-      const match = walkForConversation(value, conversationId, 15000);
+      const match = await walkForConversation(value, conversationId, 15000, isCurrent);
       if (match) {
         return match;
       }
@@ -409,12 +455,12 @@
 
       let value;
       try {
-        value = window[prop];
+        value = Object.getOwnPropertyDescriptor(window, prop)?.value;
       } catch (_error) {
         continue;
       }
 
-      const match = walkForConversation(value, conversationId, 8000);
+      const match = await walkForConversation(value, conversationId, 8000, isCurrent);
       if (match) {
         return match;
       }
@@ -657,34 +703,24 @@
   }
 
   function installNavigationTracking() {
-    if (!window.__convoExporterNavPatched) {
-      window.__convoExporterNavPatched = true;
-
-      const wrapHistoryMethod = (methodName) => {
-        const original = history[methodName];
-        history[methodName] = function wrappedHistoryMethod(...args) {
-          const result = original.apply(this, args);
-          window.dispatchEvent(new Event("convo-exporter:navigation"));
-          return result;
-        };
-      };
-
-      wrapHistoryMethod("pushState");
-      wrapHistoryMethod("replaceState");
-      window.addEventListener("popstate", () => {
-        window.dispatchEvent(new Event("convo-exporter:navigation"));
-      });
+    function updatePolling() {
+      window.clearInterval(navigationPoll);
+      navigationPoll = null;
+      if (root.style.display !== "none" && !document.hidden) {
+        handlePossibleNavigation();
+        navigationPoll = window.setInterval(handlePossibleNavigation, 2000);
+      }
     }
 
-    window.addEventListener("convo-exporter:navigation", handlePossibleNavigation);
-    root.addEventListener("convo-exporter:open", handlePossibleNavigation);
-
-    const navigationPoll = window.setInterval(handlePossibleNavigation, 500);
-    window.addEventListener(
-      "pagehide",
-      () => window.clearInterval(navigationPoll),
-      { once: true }
-    );
+    window.addEventListener("popstate", handlePossibleNavigation);
+    root.addEventListener("convo-exporter:open", updatePolling);
+    document.addEventListener("visibilitychange", updatePolling);
+    window.addEventListener("pageshow", updatePolling);
+    window.addEventListener("pagehide", () => {
+      window.clearInterval(navigationPoll);
+      cancelOperation();
+    });
+    updatePolling();
   }
 
   function getCookieValue(name) {
@@ -693,8 +729,9 @@
     return match ? decodeURIComponent(match[1]) : "";
   }
 
-  async function getAuthContext() {
+  async function getAuthContext(signal) {
     const response = await fetch(`${window.location.origin}/api/auth/session`, {
+      signal,
       credentials: "include",
       headers: {
         accept: "application/json"
@@ -728,12 +765,12 @@
     return { accessToken, accountId };
   }
 
-  async function fetchConversationFromApi(conversationId, isCurrent = () => true) {
+  async function fetchConversationFromApi(conversationId, isCurrent = () => true, signal) {
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
     }
 
-    const { accessToken, accountId } = await getAuthContext();
+    const { accessToken, accountId } = await getAuthContext(signal);
     const deviceId = getCookieValue("oai-did");
     const language = getCookieValue("oai-locale") || navigator.language || "en-US";
     const targetPath = `/backend-api/conversation/${conversationId}`;
@@ -762,6 +799,7 @@
       }
 
       const response = await fetch(`${window.location.origin}${path}?${query}`, {
+        signal,
         credentials: "include",
         headers: batchHeaders
       });
@@ -786,6 +824,7 @@
 
     const result = await conversationApi.collectConversationPages({
       initialConversation,
+      isCurrent,
       fetchPage: async (beforeMessageId) => {
         const pagingHeaders = {
           ...headers,
@@ -809,7 +848,7 @@
     };
   }
 
-  async function resolveConversationJson(isCurrent = () => true) {
+  async function resolveConversationJson(isCurrent = () => true, signal) {
     const conversationId = getConversationId();
     if (!conversationId) {
       throw new Error("Open a specific ChatGPT conversation first.");
@@ -817,15 +856,15 @@
 
     const sources = [
       async () => ({
-        conversationJson: await fetchConversationFromApi(conversationId, isCurrent),
+        conversationJson: await fetchConversationFromApi(conversationId, isCurrent, signal),
         source: "backend-api"
       }),
       async () => {
         const pageStateMatch =
-          findConversationInWindow(conversationId) ||
-          findConversationInScripts(conversationId) ||
-          findConversationInStorage(window.sessionStorage, conversationId) ||
-          findConversationInStorage(window.localStorage, conversationId);
+          await findConversationInWindow(conversationId, isCurrent) ||
+          await findConversationInScripts(conversationId, isCurrent) ||
+          await findConversationInStorage(window.sessionStorage, conversationId, isCurrent) ||
+          await findConversationInStorage(window.localStorage, conversationId, isCurrent);
 
         if (!pageStateMatch) {
           throw new Error("Conversation not found in page state.");
@@ -850,37 +889,34 @@
     ];
 
     const errors = [];
-    const candidates = [];
-    for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
-      const loadSource = sources[sourceIndex];
+    for (const loadSource of sources) {
+      if (!isCurrent()) {
+        throw new Error("Conversation export cancelled.");
+      }
       try {
         const result = await loadSource();
-        const parsed = parser.parseConversationJson(JSON.stringify(result.conversationJson));
-        candidates.push({
+        const input = result.source === "backend-api"
+          ? { messages: result.conversationJson.messages }
+          : result.conversationJson;
+        const turns = await parser.extractTurnsAsync(input, isCurrent);
+        if (!turns.length) {
+          throw new Error("No user or assistant messages were found in this source.");
+        }
+        return {
           ...result,
-          sourceIndex,
-          turnsCount: parsed.turns.length
-        });
+          turns,
+          sourceErrors: errors,
+          sourceCandidates: [{ source: result.source, turnsCount: turns.length }]
+        };
       } catch (error) {
+        if (!isCurrent()) {
+          throw error;
+        }
         errors.push(error?.message || String(error));
       }
     }
 
-    if (!candidates.length) {
-      throw new Error(`Unable to load the conversation. ${errors.join(" ")}`.trim());
-    }
-
-    candidates.sort(
-      (left, right) => right.turnsCount - left.turnsCount || left.sourceIndex - right.sourceIndex
-    );
-    const bestCandidate = candidates[0];
-
-    return {
-      conversationJson: bestCandidate.conversationJson,
-      source: bestCandidate.source,
-      sourceErrors: errors,
-      sourceCandidates: candidates.map(({ source, turnsCount }) => ({ source, turnsCount }))
-    };
+    throw new Error(`Unable to load the conversation. ${errors.join(" ")}`.trim());
   }
 
   function downloadText(text, filename) {
@@ -898,14 +934,19 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function buildFromCurrentChat(isCurrent = () => true) {
-    const { conversationJson, source, sourceErrors, sourceCandidates } =
-      await resolveConversationJson(isCurrent);
-    const parsed = parser.parseConversationJson(
-      JSON.stringify(conversationJson),
+  async function buildFromCurrentChat(operation) {
+    const isCurrent = () => isOperationCurrent(operation);
+    const { conversationJson, turns, source, sourceErrors, sourceCandidates } =
+      await resolveConversationJson(isCurrent, operation.signal);
+    if (isCurrent()) {
+      setStatus(`Formatting ${turns.length} messages...`);
+    }
+    const formattedText = await parser.formatTurnsAsync(
+      turns,
       assistantInput.value.trim() || "Assistant",
       userInput.value.trim() || "User",
-      getSelectedFormat()
+      getSelectedFormat(),
+      isCurrent
     );
 
     const mappingCount =
@@ -915,14 +956,15 @@
     const messageCount = Array.isArray(conversationJson?.messages) ? conversationJson.messages.length : 0;
 
     return {
-      ...parsed,
+      formattedText,
+      parsedJson: conversationJson,
       source,
       debug: {
         source,
         mappingCount,
         messageCount,
         paginationPages: conversationJson?.__exporterPaginationPages ?? 0,
-        turnsCount: parsed.turns.length,
+        turnsCount: turns.length,
         currentNode: conversationJson?.current_node || "n/a",
         sourceErrors,
         sourceCandidates
@@ -930,28 +972,36 @@
     };
   }
 
-  root.querySelector("#ce-close").addEventListener("click", () => {
+  function closeOverlay() {
+    cancelOperation();
     root.style.display = "none";
-  });
+    window.clearInterval(navigationPoll);
+    previewOutput.value = "";
+    setStatus("Closed. Reopen the exporter to preview or export again.");
+  }
+
+  root.querySelector("#ce-close").addEventListener("click", closeOverlay);
 
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      root.style.display = "none";
+      closeOverlay();
     }
   });
+
+  for (const type of ["keydown", "keyup", "keypress", "input", "change"]) {
+    root.addEventListener(type, (event) => event.stopPropagation());
+  }
 
   installNavigationTracking();
 
   root.querySelector("#ce-preview").addEventListener("click", async () => {
     const operation = startOperation("Loading preview...");
     try {
-      const { formattedText, source, debug } = await buildFromCurrentChat(() =>
-        isOperationCurrent(operation)
-      );
+      const { formattedText, source, debug } = await buildFromCurrentChat(operation);
       if (!isOperationCurrent(operation)) {
         return;
       }
-      previewOutput.value = formattedText;
+      const previewNote = updatePreview(formattedText);
       setDebugInfo([
         `Debug source: ${debug.source}`,
         `Turns exported: ${debug.turnsCount}`,
@@ -964,26 +1014,26 @@
           .join(" | ")}`,
         `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
-      setStatus(`Preview updated from ${source}.`);
+      setStatus(`Preview updated from ${source}.${previewNote}`);
     } catch (error) {
       if (!isOperationCurrent(operation)) {
         return;
       }
       setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);
       setStatus(error.message || "Failed to preview the current chat.", true);
+    } finally {
+      finishOperation(operation);
     }
   });
 
   root.querySelector("#ce-export").addEventListener("click", async () => {
     const operation = startOperation("Exporting current chat...");
     try {
-      const { formattedText, parsedJson, source, debug } = await buildFromCurrentChat(() =>
-        isOperationCurrent(operation)
-      );
+      const { formattedText, parsedJson, source, debug } = await buildFromCurrentChat(operation);
       if (!isOperationCurrent(operation)) {
         return;
       }
-      previewOutput.value = formattedText;
+      const previewNote = updatePreview(formattedText);
       setDebugInfo([
         `Debug source: ${debug.source}`,
         `Turns exported: ${debug.turnsCount}`,
@@ -997,13 +1047,15 @@
         `Fallbacks: ${debug.sourceErrors.length ? debug.sourceErrors.join(" | ") : "none"}`
       ]);
       downloadText(formattedText, parsedJson?.title || getConversationTitle());
-      setStatus(`Export started from ${source}.`);
+      setStatus(`Export started from ${source}.${previewNote}`);
     } catch (error) {
       if (!isOperationCurrent(operation)) {
         return;
       }
       setDebugInfo([`Debug error: ${error.message || "Unknown error"}`]);
       setStatus(error.message || "Failed to export the current chat.", true);
+    } finally {
+      finishOperation(operation);
     }
   });
 })();

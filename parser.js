@@ -1,4 +1,18 @@
 (() => {
+let timestampFormatter;
+
+function yieldToBrowser() {
+  return globalThis.scheduler?.yield
+    ? globalThis.scheduler.yield()
+    : new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function checkOperation(isCurrent) {
+  if (!isCurrent()) {
+    throw new Error("Conversation export cancelled.");
+  }
+}
+
 function normalizeText(value) {
   if (typeof value !== "string") {
     return "";
@@ -151,14 +165,15 @@ function formatCreateTime(createTime) {
     return "";
   }
 
-  const parts = new Intl.DateTimeFormat("en-GB", {
+  timestampFormatter ??= new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23"
-  }).formatToParts(date);
+  });
+  const parts = timestampFormatter.formatToParts(date);
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
 
   if (!values.weekday || !values.day || !values.month || !values.hour || !values.minute) {
@@ -232,13 +247,15 @@ function getCandidateMessageArrays(input) {
     candidates.push(mappingPath);
   }
 
-  const mappingMessages = getSortedMappingMessages(input);
   const mappingPathIsIncomplete = Boolean(mappingPath[0]?.parent);
-  if ((!mappingPath.length || mappingPathIsIncomplete) && mappingMessages.length) {
-    candidates.push(mappingMessages);
+  if (!mappingPath.length || mappingPathIsIncomplete) {
+    const mappingMessages = getSortedMappingMessages(input);
+    if (mappingMessages.length) {
+      candidates.push(mappingMessages);
+    }
   }
 
-  return candidates;
+  return [...new Set(candidates)];
 }
 
 function scoreTurns(turns) {
@@ -307,21 +324,67 @@ function extractTurns(parsedJson) {
   return bestTurns;
 }
 
-function formatTurns(turns, assistantName, userName, format = "md") {
+async function extractTurnsAsync(parsedJson, isCurrent = () => true) {
+  checkOperation(isCurrent);
+  let bestTurns = [];
+  let bestScore = -1;
+
+  for (const messages of getCandidateMessageArrays(parsedJson)) {
+    const turns = [];
+    for (let index = 0; index < messages.length; index += 200) {
+      checkOperation(isCurrent);
+      turns.push(...extractTurnsFromMessages(messages.slice(index, index + 200)));
+      await yieldToBrowser();
+    }
+    const score = scoreTurns(turns);
+    if (score > bestScore) {
+      bestTurns = turns;
+      bestScore = score;
+    }
+  }
+  checkOperation(isCurrent);
+  return bestTurns;
+}
+
+function formatTurn(turn, assistantName, userName, isPlainText) {
+  const timestamp = formatCreateTime(turn.createTime);
+  const assistantDetails = [timestamp, turn.modelSlug].filter(Boolean);
+  const speaker = turn.role === "assistant"
+    ? `${assistantName}${assistantDetails.length ? ` (${assistantDetails.join(", ")})` : ""}`
+    : userName;
+  const heading = isPlainText ? `${speaker}:` : `**${speaker}:**`;
+  return `${heading}\n${turn.text}`;
+}
+
+function formatTurns(turns, assistantName = "Assistant", userName = "User", format = "md") {
   const isPlainText = String(format).toLowerCase() === "txt";
   const separator = isPlainText ? "--------------------" : "***";
 
   return turns
-    .map((turn) => {
-      const timestamp = formatCreateTime(turn.createTime);
-      const assistantDetails = [timestamp, turn.modelSlug].filter(Boolean);
-      const speaker = turn.role === "assistant"
-        ? `${assistantName}${assistantDetails.length ? ` (${assistantDetails.join(", ")})` : ""}`
-        : userName;
-      const heading = isPlainText ? `${speaker}:` : `**${speaker}:**`;
-      return `${heading}\n${turn.text}`;
-    })
+    .map((turn) => formatTurn(turn, assistantName, userName, isPlainText))
     .join(`\n\n${separator}\n\n`);
+}
+
+async function formatTurnsAsync(
+  turns,
+  assistantName = "Assistant",
+  userName = "User",
+  format = "md",
+  isCurrent = () => true
+) {
+  const isPlainText = String(format).toLowerCase() === "txt";
+  const separator = isPlainText ? "--------------------" : "***";
+  const parts = [];
+
+  for (let index = 0; index < turns.length; index += 200) {
+    checkOperation(isCurrent);
+    for (const turn of turns.slice(index, index + 200)) {
+      parts.push(formatTurn(turn, assistantName, userName, isPlainText));
+    }
+    await yieldToBrowser();
+  }
+  checkOperation(isCurrent);
+  return parts.join(`\n\n${separator}\n\n`);
 }
 
 function parseConversationJson(
@@ -336,7 +399,7 @@ function parseConversationJson(
 
   let parsedJson;
   try {
-    parsedJson = JSON.parse(rawJson);
+    parsedJson = typeof rawJson === "string" ? JSON.parse(rawJson) : rawJson;
   } catch (_error) {
     throw new Error("The JSON is invalid.");
   }
@@ -363,6 +426,8 @@ function sanitizeFilenamePart(value, fallback) {
 }
 
 globalThis.__conversationExporterParser = Object.freeze({
+  extractTurnsAsync,
+  formatTurnsAsync,
   parseConversationJson,
   sanitizeFilenamePart
 });
